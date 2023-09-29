@@ -1,0 +1,106 @@
+<mxfile host="embed.diagrams.net" modified="2023-09-27T12:36:00.706Z" agent="Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/117.0" etag="kX4khPRz4Mhsi2GBRHCL" version="21.8.2" type="embed">
+  <diagram id="oEUGuzyK5eyd2CWkXXsy" name="Seite-1">
+    <mxGraphModel dx="1095" dy="833" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" value="underlying &quot;real&quot; filesystem (XFS,Ext4...)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#b0e3e6;strokeColor=#0e8088;" parent="1" vertex="1">
+          <mxGeometry x="260" y="480" width="340" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="15" value="" style="shape=ext;double=1;rounded=0;whiteSpace=wrap;html=1;fillColor=#76608a;strokeColor=#432D57;fontColor=#ffffff;" parent="1" vertex="1">
+          <mxGeometry x="160" y="280" width="460" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="FUSE Layer" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" parent="1" vertex="1">
+          <mxGeometry x="310" y="345" width="130" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0;entryDx=20;entryDy=0;entryPerimeter=0;strokeWidth=3;fillColor=#647687;strokeColor=#314354;exitX=0.25;exitY=1;exitDx=0;exitDy=0;" parent="1" source="3" target="10" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="250" y="380" as="sourcePoint" />
+            <mxPoint x="268" y="505" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="9" value="Stores VFS attributes as Xattr" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="310" y="530" width="190" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="File" style="shape=note;size=20;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="280" y="490" width="40" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="44" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="13" target="21">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="" style="shape=image;imageAspect=0;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;image=https://upload.wikimedia.org/wikipedia/commons/thumb/6/60/Nextcloud_Logo.svg/2560px-Nextcloud_Logo.svg.png;imageBorder=#66B2FF;strokeWidth=2;imageBackground=#FFFFFF;" parent="1" vertex="1">
+          <mxGeometry x="610" y="345" width="72" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="12" value="" style="shape=image;imageAspect=0;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;image=https://www.etes.de/files/etes/logo/ownCloud_Logo.png;imageBorder=default;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="610" y="280" width="72" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="19" value="Plugins" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="610" y="460" width="68" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="21" value="&lt;div&gt;Create&lt;/div&gt;&lt;div&gt;Remove&lt;br&gt;&lt;/div&gt;&lt;div&gt;Rename&lt;/div&gt;&lt;div&gt;Change&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&lt;div&gt;HydrateFile&lt;/div&gt;&lt;div&gt;Dehydrate File&lt;br&gt;&lt;/div&gt;Pin State&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="470" y="300" width="105" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="27" value="&lt;font style=&quot;font-size: 29px;&quot;&gt;&lt;b&gt;OpenVFS&lt;/b&gt;&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="214" y="280" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="28" value="other Cloud Provider" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;gradientColor=#97d077;" vertex="1" parent="1">
+          <mxGeometry x="610" y="410" width="70" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="30" value="" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0;entryDx=30;entryDy=10;entryPerimeter=0;strokeWidth=3;fillColor=#647687;strokeColor=#314354;exitX=0;exitY=0.75;exitDx=0;exitDy=0;" edge="1" parent="1" source="21" target="10">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="260" y="390" as="sourcePoint" />
+            <mxPoint x="210" y="500" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="31" value="Userland FIle Manager" style="swimlane;whiteSpace=wrap;html=1;fillColor=#b1ddf0;strokeColor=#10739e;" vertex="1" parent="1">
+          <mxGeometry x="300" y="140" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="32" value="Dolphin, Nautilus etc." style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="31">
+          <mxGeometry x="40" y="25" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="34" value="" style="endArrow=classic;html=1;rounded=0;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=3;fillColor=#647687;strokeColor=#314354;" edge="1" parent="1" source="33" target="35">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="150" y="210" as="sourcePoint" />
+            <mxPoint x="80" y="230" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="35" value="libOpenVFS" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="170" y="345" width="126" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="36" value="" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0;entryDx=10;entryDy=0;entryPerimeter=0;strokeWidth=3;fillColor=#647687;strokeColor=#314354;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="35" target="10">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="353" y="395" as="sourcePoint" />
+            <mxPoint x="210" y="500" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="33" value="&lt;div&gt;overlay icon&lt;/div&gt;&lt;div&gt;Plugin&lt;br&gt;&lt;/div&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#dae8fc;gradientColor=#7ea6e0;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="260" y="180" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="37" value="" style="endArrow=classic;html=1;rounded=0;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=3;fillColor=#647687;strokeColor=#314354;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="400" y="220" as="sourcePoint" />
+            <mxPoint x="373" y="345" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="38" value="Posix File Access" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="345" y="240" width="210" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="39" value="VFS Metadata" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="145" y="240" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="43" value="" style="shape=flexArrow;endArrow=classic;startArrow=classic;html=1;rounded=0;endSize=4;startSize=4;fillColor=#d0cee2;strokeColor=#56517e;" edge="1" parent="1">
+          <mxGeometry width="100" height="100" relative="1" as="geometry">
+            <mxPoint x="570" y="374.5" as="sourcePoint" />
+            <mxPoint x="610" y="374.5" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="45" value="" style="shape=flexArrow;endArrow=classic;startArrow=classic;html=1;rounded=0;endSize=4;startSize=4;fillColor=#d0cee2;strokeColor=#56517e;" edge="1" parent="1">
+          <mxGeometry width="100" height="100" relative="1" as="geometry">
+            <mxPoint x="434" y="364.5" as="sourcePoint" />
+            <mxPoint x="474" y="364.5" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
