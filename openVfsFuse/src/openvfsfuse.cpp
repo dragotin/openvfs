@@ -40,6 +40,8 @@
 
 #include <easylogging++.h>
 #include "json.hpp"
+#include "socketthread.h"
+#include "sharedmap.h"
 
 #include <stdarg.h>
 #include <getopt.h>
@@ -49,8 +51,7 @@
 #include "Config.h"
 #include <stdexcept>
 #include <iostream>
-#include <sys/socket.h>
-#include <sys/un.h>
+
 #include <cstring>
 
 #include "openvfsfuse.h"
@@ -74,10 +75,6 @@ using namespace std;
 #define PUSHARG(ARG)                      \
     rAssert(out->fuseArgc < MaxFuseArgs); \
     out->fuseArgv[out->fuseArgc++] = ARG
-
-
-
-static std::string socket_path = "/run/user/1000/OpenCloud/socket";
 
 /* ========== Prototypes */
 static bool isAbsolutePath(const char *fileName);
@@ -154,7 +151,11 @@ static int openVFSfuse_removexattr(const char *orig_path, const char *name);
 
 static Config config;
 static int savefd;
-static int _socket;
+
+static SharedMap _jobs;
+static SocketThread _socketThread("SocketThread", _jobs);
+
+static int _transfer_id{12};
 
 static el::base::DispatchAction dispatchAction = el::base::DispatchAction::NormalLog;
 static const char *loggerId = "default";
@@ -168,11 +169,25 @@ struct openVFSfuse_Args
     char *configFilename;
     bool isDaemon; // true == spawn in background, log to syslog except if log file parameter is set
     bool logToSyslog;
+    bool vfsOwnerOk;
     const char *fuseArgv[MaxFuseArgs];
     int fuseArgc;
 };
 
 static openVFSfuse_Args *openvfsfuseArgs = new openVFSfuse_Args;
+
+struct openVFSPlaceHolderAttribs
+{
+    std::string absolutePath;
+    std::string etag;
+    std::string fileId;
+    std::size_t fSize;
+    std::string action;
+    std::string state;
+    std::string pinState;
+
+    bool isOk() const { return !absolutePath.empty(); }
+};
 
 /* == Prototypes == */
 static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value,
@@ -250,14 +265,25 @@ static bool isAbsolutePath(const char *fileName)
         return false;
 }
 
-static char *getAbsolutePath(const char *path)
+static std::string getAbsolutePath(const char *path)
 {
-    char *fixed = new char[1+strlen(path)+strlen(openvfsfuseArgs->mountPoint)];
+    std::string s{openvfsfuseArgs->mountPoint};
+    s += path;
 
-    strcpy(fixed, openvfsfuseArgs->mountPoint);
-    strcat(fixed, path);
+    return s;
+}
 
-    return fixed;
+static std::string absoluteToRelativePath(const char *path)
+{
+    std::string s;
+
+    int len = strlen(path)-strlen(openvfsfuseArgs->mountPoint);
+
+    if (len < 1) return s;
+
+    s += ".";
+    s += (path + strlen(openvfsfuseArgs->mountPoint));
+    return s;
 }
 
 static char *getRelativePath(const char *path)
@@ -272,32 +298,9 @@ static char *getRelativePath(const char *path)
     }
 
     strcpy(fixed,".");
-    strcat(fixed,path);
+    strcat(fixed, path);
 
     return fixed;
-}
-
-// helper: Call the client socket
-static std::string query_socket(const std::string &msg) {
-
-    // send message
-    unsigned long int value;
-
-    value = write(_socket, msg.c_str(), msg.size());
-    if (value < 0) {
-        perror("write");
-        close(_socket);
-        return "";
-    }
-
-    openvfsfuse_log(socket_path.c_str(), "socket send", value, "Message: %s", msg.c_str());
-
-    // read answer
-    char buf[256];
-    ssize_t n = read(_socket, buf, sizeof(buf)-1);
-    if (n <= 0) return "";
-    buf[n] = '\0';
-    return std::string(buf);
 }
 
 static void *openVFSfuse_init(struct fuse_conn_info *info)
@@ -310,34 +313,44 @@ static void *openVFSfuse_init(struct fuse_conn_info *info)
     return NULL;
 }
 
-/*
- * checks if a file is hydrated by looking up the extended attribute "user.openvfs.state"
- * If it is set to "dehydrated" this indicates that the file is not present locally and
- * the size is read from an extended attr as well
- */
-int check_if_dehydrated(const char *orig_path, struct stat *stbuf)
+openVFSPlaceHolderAttribs get_placeholder_attribs(const char *orig_path)
 {
-    const char *path = getRelativePath(orig_path);
-    char val[30] = {};
-    size_t size = 30;
+    openVFSPlaceHolderAttribs attr;
 
-    int res = openVFSfuse_getxattr(orig_path, "user.openvfs.state", val, size);
-    openvfsfuse_log(path, "check_dehydrated", res, "state %s", val);
+    // const char *path = getRelativePath(orig_path);
+    size_t size = 254;
+    char val[size] = {};
 
-    if (strncmp(val, "dehydrated", 10) == 0) {
-        res = openVFSfuse_getxattr(orig_path, "user.openvfs.fsize", val, size);
+    // make sure the owner is correct. That means the xattr starts with
+    // the word "opencloud".
+    if (!openvfsfuseArgs->vfsOwnerOk) {
+        openvfsfuse_log("/path", "_init", 1, "**** INIT called");
 
-        char *endptr;
-        unsigned long int value;
-
-        value = strtoul(val, &endptr, 0);
-        stbuf->st_size = value;
-        openvfsfuse_log(path, "check_dehydrated", value, "xattr size is (%ld)", value);
+        return attr;
     }
 
+    attr.absolutePath = getAbsolutePath(orig_path);
 
-    delete[] path;
-    return res;
+    openVFSfuse_getxattr(orig_path, "user.openvfs.etag", val, size);
+    attr.etag = std::string(val);
+
+    openVFSfuse_getxattr(orig_path, "user.openvfs.fileid", val, size);
+    attr.fileId = std::string(val);
+
+    openVFSfuse_getxattr(orig_path, "user.openvfs.fsize", val, size);
+    char *pEnd;
+    attr.fSize = strtoul(val, &pEnd, 10);
+
+    openVFSfuse_getxattr(orig_path, "user.openvfs.action", val, size);
+    attr.action = std::string(val);
+
+    openVFSfuse_getxattr(orig_path, "user.openvfs.state", val, size);
+    attr.state = std::string(val);
+
+    openVFSfuse_getxattr(orig_path, "user.openvfs.pinstate", val, size);
+    attr.state = std::string(val);
+
+    return attr;
 }
 
 static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf)
@@ -346,12 +359,13 @@ static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf)
 
     const char *path = getRelativePath(orig_path);
     res = lstat(path, stbuf);
+    const auto attribs = get_placeholder_attribs(orig_path);
 
-    if (stbuf->st_size == 1L) {
-        check_if_dehydrated(orig_path, stbuf);
+    int r;
+    if (attribs.isOk() && attribs.state.compare("virtual") == 0) {
+        stbuf->st_size = attribs.fSize;
     }
 
-    openvfsfuse_log(path, "getattr", res, "getattr %s (%d)", path, res);
     delete[] path;
     if (res == -1)
         return -errno;
@@ -697,35 +711,92 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         openvfsfuse_log(path, "open", res, "open %s", path);
     }
 
-    // - Check the xattr if the file is dehydrated.
-    char val[30] = {};
-    size_t size = 30;
+    auto attribs = get_placeholder_attribs(orig_path);
 
-    // FIXME: Check if that is our vfs by
-    res = openVFSfuse_getxattr(orig_path, "user.openvfs.state", val, size);
-    openvfsfuse_log(path, "open", res, "state %s", val);
-
-    const char *abs_path = getAbsolutePath(orig_path);
-    if (strncmp(val, "dehydrated", 10) == 0) {
-        // int id{17}; // FIXME real id
-        const json j = {
-            {"id", "17"},
-            {"arguments", {
-                 {"file", abs_path}
-            }}
-        };
-
-        std::string msg{"V2/HYDRATE_FILE:"};
-        msg += j.dump();
-        msg += '\n';
-        std::string s = query_socket(msg);
-        openvfsfuse_log(path, "open", res, "socket reply %s", s.c_str());
+    if (!attribs.isOk()) {
+        openvfsfuse_log(path, "open", 0, "Not a placeholder file");
     }
 
+    // The desktop client must not be blocked from accessing the file
+    // to be able to overwrite it.
+    long desktopClientPid = _jobs.desktopClientPid();
+    long callerPid = fuse_get_context()->pid;
+
+    if (callerPid == desktopClientPid) {
+        cout << "Desktop client wants to access file - bypassing" << endl;
+    }
+
+    if (callerPid != desktopClientPid && attribs.isOk() && attribs.state.compare("virtual") == 0) {
+        ++_transfer_id;
+        // Create message to send to worker thread 1
+        std::shared_ptr<MsgData> msgData(new MsgData());
+        msgData->msg = "V2/HYDRATE_FILE";
+        msgData->file = attribs.absolutePath;
+        msgData->fileId = attribs.fileId;
+        msgData->id = _transfer_id; // attention: _transfer_id is global and can change!
+
+        _socketThread.PostMsg(msgData); // push hydration request to msg thread
+
+        // Now Loop in this thread until the shared map of running jobs does not
+        // longer contain the transfer_id
+        int cnt{0};
+        int state{1};
+        const auto MaxCnt{500};
+        std::chrono::duration waitTime{20ms};
+        std::chrono::duration dur{30ms};
+
+        while(state == 1 && cnt++ < MaxCnt) {
+            this_thread::sleep_for(waitTime); // sleep for some time
+            waitTime += dur;
+            dur += waitTime;
+
+            // check shared map and see if the id has changed to 0, which means success
+            // the value is changed in the other thread and fetched here
+            HydJob hj;
+
+            if (! _jobs.get(msgData->id, hj)) {
+                // The job is no longer there :-/
+                openvfsfuse_log(path, "open", 1, "Job queue does not have job %d", msgData->id);
+                state = -1;
+            } else {
+                state = hj.state;
+                openvfsfuse_log(path, "open", 1, "Found in job queue %d", state);
+
+                // With all the state values except 1, the loop is left
+                if (state == 0) {
+                    // success!
+                    openvfsfuse_log(path, "open", 1, "Sucessfully finished job %d", msgData->id);
+                } else if (state == 1) {
+                    // still running
+                } else if (state == -1) {
+                    // fail
+                    openvfsfuse_log(path, "open", 0, "Failed job %d", msgData->id);
+                } else if (state == 2) {
+                    // timeout
+                    openvfsfuse_log(path, "open", 0, "Job %d timed out", msgData->id);
+                }
+            }
+        }
+
+        // remove the job regardless of the result
+        _jobs.remove(msgData->id);
+
+        if (state == -1 || state == 2) {
+            // Fail, job with ID was errornous
+            openvfsfuse_log(path, "open", 1, "ERROR while retrieving: %d", state);
+            return -ENOENT;
+        }
+
+        if (cnt >= MaxCnt) {
+            openvfsfuse_log(path, "open", MaxCnt, "TIMEOUT - no answer from client");
+            return -ENOENT;
+        }
+    }
+
+    // File is not dehydrated and it is just going to be opened
     res = open(path, fi->flags);
 
     delete[] path;
-    delete[] abs_path;
 
     if (res == -1)
         return -errno;
@@ -827,35 +898,6 @@ static int openVFSfuse_fsync(const char *orig_path, int isdatasync,
     return 0;
 }
 
-int dehydrate(const char *orig_path)
-{
-    struct stat buf;
-    openVFSfuse_getattr(orig_path, &buf);
-    char fsize[30];
-    int res;
-
-    int64_t s = buf.st_size;
-    sprintf(fsize, "%ld", s);
-    res = openVFSfuse_setxattr(orig_path, "user.openvfs.fsize", fsize, strlen(fsize), 0);
-
-    openvfsfuse_log(orig_path, "dehydrate truncate", res, "truncate file size");
-
-    /* truncate the file to zero */
-    res = openVFSfuse_truncate(orig_path, 0);
-    openvfsfuse_log(orig_path, "dehydrate", res, "truncate file");
-
-    if (res != 0) {
-        res = 0;
-    }
-
-    /* if successful, remove the action and set the state to dehydrated */
-    if (res == 0) {
-        res = openVFSfuse_setxattr(orig_path, "user.openvfs.state", "dehydrated", 10, 0);
-    }
-    return res;
-
-}
-
 #ifdef HAVE_SETXATTR
 /* xattr operations are optional and can safely be left unimplemented */
 static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value,
@@ -866,13 +908,9 @@ static int openVFSfuse_setxattr(const char *orig_path, const char *name, const c
     openvfsfuse_log(path, "setxattr", 0, "setxattr %s = %s, size = %ld flags=%d", name, value, size, flags);
 
     int res;
-    if (strcmp(name, "user.openvfs.action") == 0 && strcmp(value, "dehydrate") == 0) {
-        openvfsfuse_log(path, "setxattr", 0, "setxattr detect openvfs command %s", value);
-        res = dehydrate(orig_path);
-    } else {
-        res = lsetxattr(path, name, value, size, flags);
-        openvfsfuse_log(path, "setxattr", res, "setxattr %s %d", path, errno);
-    }
+
+    res = lsetxattr(path, name, value, size, flags);
+    openvfsfuse_log(path, "setxattr", res, "setxattr %s %d", path, errno);
 
     delete[] path;
     if (res == -1)
@@ -1054,30 +1092,8 @@ static bool processArgs(int argc, char *argv[], openVFSfuse_Args *out)
                 out->mountPoint);
         return false;
     }
+
     return true;
-}
-
-int initSocket()
-{
-    _socket = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (_socket < 0) {
-        return -1;
-    }
-
-    struct sockaddr_un addr{};
-    addr.sun_family = AF_UNIX;
-    std::strncpy(addr.sun_path, socket_path.c_str(), sizeof(addr.sun_path) - 1);
-
-
-    if (connect(_socket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        return -1;
-    }
-
-    /* send  a welcome message to the SocketAPI */
-    std::string msg{"VERSION:"};
-    msg += '\n';
-    std::string s = query_socket(msg);
-    return 1;
 }
 
 
@@ -1169,11 +1185,26 @@ int initializeOpenVFSFuse(int argc, char *argv[])
             }
         }
         delete[] input;
+
+        // check ownership on the mountpoint
+        openvfsfuseArgs->vfsOwnerOk = false;
+        char value[255];
+        int res = lgetxattr(openvfsfuseArgs->mountPoint, "user.openvfs.owner", value, 255);
+        if (strncmp(value, "opencloud", 9) == 0) {
+            openvfsfuseArgs->vfsOwnerOk = true;
+        }
+
+        if (res == -1) {
+            defaultLogger->info("Root directory does not have owner info");
+            // return -errno;
+        }
+
         defaultLogger->info("chdir to %v", openvfsfuseArgs->mountPoint);
         chdir(openvfsfuseArgs->mountPoint);
         savefd = open(".", 0);
 
-        initSocket();
+        _socketThread.CreateThread();
+
 #if (FUSE_USE_VERSION == 25)
         fuse_main(openvfsfuseArgs->fuseArgc,
                   const_cast<char **>(openvfsfuseArgs->fuseArgv), &openVFSfuse_oper);
@@ -1183,7 +1214,6 @@ int initializeOpenVFSFuse(int argc, char *argv[])
 #endif
 
         defaultLogger->info("openVFSfuse closing.");
-        close(_socket);
     }
 
     return 0;
