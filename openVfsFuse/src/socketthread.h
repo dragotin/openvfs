@@ -40,6 +40,7 @@ struct MsgData
     std::string file;
     std::string fileId;
     int id;
+    std::string requester;
 };
 
 class SharedMap;

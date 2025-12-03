@@ -136,7 +136,8 @@ bool SocketThread::socketSendMsg(std::shared_ptr<MsgData> msgData)
         {"id", std::to_string(msgData->id)},
         {"arguments", {
              {"file", msgData->file},
-             {"fileId", msgData->fileId}
+             {"fileId", msgData->fileId},
+             {"requster", msgData->requester}
          }}
     };
 
@@ -163,7 +164,7 @@ bool SocketThread::socketSendMsg(std::shared_ptr<MsgData> msgData)
 std::string SocketThread::readSocket()
 {
     // read answer FIXME: Split messages by \n and keep the rest
-    char buf[256];
+    char buf[1024];
     ssize_t n = read(_socket, buf, sizeof(buf)-1);
     if (n <= 0) return std::string();
     buf[n] = '\0';
@@ -211,6 +212,8 @@ void SocketThread::handleReceivedMsg(const std::string& rawmsg)
             msgAttr = msg.substr(found+1, string::npos);
         }
 
+        // FIXME: Think if splitting by newline makes sense
+
         if (msgType == "V2/HYDRATE_FILE_RESULT") {
             const auto j = json::parse(msgAttr);
             const int id = std::stoi(j["id"].get<string>());
@@ -221,7 +224,6 @@ void SocketThread::handleReceivedMsg(const std::string& rawmsg)
 
             if (id > 0) {
                 int res{-1}; // Default set to fail
-                std::string file;
                 if (status == "OK") {
                     res = 0; // good!
                 } else {
