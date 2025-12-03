@@ -1,5 +1,5 @@
 #include <iostream>
-#include <fuse.h>
+#include <fuse3/fuse.h>
 
 #include "openvfsfuse.h"
 
