@@ -14,7 +14,7 @@ pkg_check_modules(PC_fuse QUIET fuse)
 set(FUSE_VERSION ${PC_fuse_VERSION})
 
 find_path(FUSE_INCLUDE_DIR
-  NAMES fuse/fuse_lowlevel.h
+  NAMES fuse3/fuse_lowlevel.h
   HINTS ${FUSE_ROOT} ${PC_fuse_INCLUDEDIR} ${PC_fuse_INCLUDE_DIRS}
   PATH_SUFFIXES include include/osxfuse)
 
@@ -25,12 +25,12 @@ if(MacOSX)
     PATH_SUFFIXES ${CMAKE_INSTALL_LIBDIR})
 else()
   find_library(FUSE_LIBRARY
-    NAMES fuse
+    NAMES fuse3
     HINTS ${FUSE_ROOT} ${PC_fuse_LIBDIR} ${PC_fuse_LIBRARY_DIRS}
     PATH_SUFFIXES$ ${CMAKE_INSTALL_LIBDIR})
 
   execute_process(
-    COMMAND sh -c "fusermount --version | cut -d ' ' -f 3 | cut -d '.' -f 1,2 | sed s/'\\.'//g"
+    COMMAND sh -c "fusermount3 --version | cut -d ' ' -f 3 | cut -d '.' -f 1,2 | sed s/'\\.'//g"
     OUTPUT_VARIABLE FUSE_MOUNT_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE
     RESULT_VARIABLE RETC)

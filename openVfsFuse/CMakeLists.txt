@@ -10,7 +10,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 add_compile_definitions(_FILE_OFFSET_BITS=64)
-add_compile_definitions(FUSE_USE_VERSION=26)
+add_compile_definitions(FUSE_USE_VERSION=30)
 add_compile_definitions(HAVE_SETXATTR)
 
 find_package(fuse REQUIRED)
@@ -18,5 +18,3 @@ find_package(LibXml2)
 find_package(PCRE2)
 
 add_subdirectory(src)
-
-

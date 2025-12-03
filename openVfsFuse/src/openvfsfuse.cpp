@@ -27,7 +27,7 @@
 #define _X_SOURCE 500
 #endif
 
-#include <fuse.h>
+#include <fuse3/fuse.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -88,16 +88,16 @@ static int openVFSfuse_setxattr(const char *orig_path, const char *name, const c
 static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *value,
                                 size_t size);
 
-static void *openVFSfuse_init(struct fuse_conn_info *info);
+static void *openVFSfuse_init(struct fuse_conn_info *info, fuse_config *cfg);
 
-static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf);
+static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_file_info *fi);
 
 static int openVFSfuse_access(const char *orig_path, int mask);
 
 static int openVFSfuse_readlink(const char *orig_path, char *buf, size_t size);
 
 static int openVFSfuse_readdir(const char *orig_path, void *buf, fuse_fill_dir_t filler,
-                               off_t offset, struct fuse_file_info *fi);
+                               off_t offset, fuse_file_info *fi, fuse_readdir_flags);
 static int openVFSfuse_mknod(const char *orig_path, mode_t mode, dev_t rdev);
 
 static int openVFSfuse_mkdir(const char *orig_path, mode_t mode);
@@ -108,21 +108,17 @@ static int openVFSfuse_rmdir(const char *orig_path);
 
 static int openVFSfuse_symlink(const char *from, const char *orig_to);
 
-static int openVFSfuse_rename(const char *orig_from, const char *orig_to);
+static int openVFSfuse_rename(const char *orig_from, const char *orig_to, unsigned int flags);
 
 static int openVFSfuse_link(const char *orig_from, const char *orig_to);
 
-static int openVFSfuse_chmod(const char *orig_path, mode_t mode);
+static int openVFSfuse_chmod(const char *orig_path, mode_t mode,fuse_file_info*);
 
-static int openVFSfuse_chown(const char *orig_path, uid_t uid, gid_t gid);
+static int openVFSfuse_chown(const char *orig_path, uid_t uid, gid_t gid, fuse_file_info*);
 
-static int openVFSfuse_truncate(const char *orig_path, off_t size);
+static int openVFSfuse_truncate(const char *orig_path, off_t size, fuse_file_info*);
 
-#if (FUSE_USE_VERSION == 25)
-static int openVFSfuse_utime(const char *orig_path, struct utimbuf *buf);
-#else
-static int openVFSfuse_utimens(const char *orig_path, const struct timespec ts[2]);
-#endif
+static int openVFSfuse_utimens(const char *orig_path, const struct timespec ts[2], fuse_file_info *);
 
 static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi);
 
@@ -311,7 +307,7 @@ static char *getRelativePath(const char *path)
     return fixed;
 }
 
-static void *openVFSfuse_init(struct fuse_conn_info *info)
+static void *openVFSfuse_init(struct fuse_conn_info *info, fuse_config *cfg)
 {
     fchdir(savefd);
     // close(savefd);
@@ -373,7 +369,7 @@ openVFSPlaceHolderAttribs get_placeholder_attribs(const char *orig_path)
     return attr;
 }
 
-static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf)
+static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_file_info *fi)
 {
     int res;
 
@@ -427,7 +423,7 @@ static int openVFSfuse_readlink(const char *orig_path, char *buf, size_t size)
 }
 
 static int openVFSfuse_readdir(const char *orig_path, void *buf, fuse_fill_dir_t filler,
-                               off_t offset, struct fuse_file_info *fi)
+                               off_t offset, fuse_file_info *fi, fuse_readdir_flags)
 {
     DIR *dp;
     struct dirent *de;
@@ -449,11 +445,10 @@ static int openVFSfuse_readdir(const char *orig_path, void *buf, fuse_fill_dir_t
 
     while ((de = readdir(dp)) != NULL)
     {
-        struct stat st;
-        memset(&st, 0, sizeof(st));
+        struct stat st = {};
         st.st_ino = de->d_ino;
         st.st_mode = de->d_type << 12;
-        if (filler(buf, de->d_name, &st, 0)) {
+        if (filler(buf, de->d_name, &st, 0, fuse_fill_dir_flags::FUSE_FILL_DIR_DEFAULTS)) {
             break;
         }
     }
@@ -579,7 +574,7 @@ static int openVFSfuse_symlink(const char *from, const char *orig_to)
     return 0;
 }
 
-static int openVFSfuse_rename(const char *orig_from, const char *orig_to)
+static int openVFSfuse_rename(const char *orig_from, const char *orig_to, unsigned int flags)
 {
     int res;
     const char *from = getRelativePath(orig_from);
@@ -619,7 +614,7 @@ static int openVFSfuse_link(const char *orig_from, const char *orig_to)
     return 0;
 }
 
-static int openVFSfuse_chmod(const char *orig_path, mode_t mode)
+static int openVFSfuse_chmod(const char *orig_path, mode_t mode, fuse_file_info*)
 {
     int res;
     char *path = getRelativePath(orig_path);
@@ -649,7 +644,7 @@ static char *getgroupname(gid_t gid)
     return NULL;
 }
 
-static int openVFSfuse_chown(const char *orig_path, uid_t uid, gid_t gid)
+static int openVFSfuse_chown(const char *orig_path, uid_t uid, gid_t gid,fuse_file_info*)
 {
     int res;
     char *path = getRelativePath(orig_path);
@@ -667,7 +662,7 @@ static int openVFSfuse_chown(const char *orig_path, uid_t uid, gid_t gid)
     return res;
 }
 
-static int openVFSfuse_truncate(const char *orig_path, off_t size)
+static int openVFSfuse_truncate(const char *orig_path, off_t size, fuse_file_info*)
 {
     int res;
 
@@ -682,25 +677,7 @@ static int openVFSfuse_truncate(const char *orig_path, off_t size)
     return 0;
 }
 
-#if (FUSE_USE_VERSION == 25)
-static int openVFSfuse_utime(const char *orig_path, struct utimbuf *buf)
-{
-    int res;
-
-    const char *path = getRelativePath(orig_path);
-    res = utime(path, buf);
-    openvfsfuse_log(path, "utime", res, "utime %s", path);
-    delete[] path;
-
-    if (res == -1)
-        return -errno;
-
-    return 0;
-}
-
-#else
-
-static int openVFSfuse_utimens(const char *orig_path, const struct timespec ts[2])
+static int openVFSfuse_utimens(const char *orig_path, const struct timespec ts[2], fuse_file_info *)
 {
     int res;
     const char *path = getRelativePath(orig_path);
@@ -715,8 +692,6 @@ static int openVFSfuse_utimens(const char *orig_path, const struct timespec ts[2
 
     return 0;
 }
-
-#endif
 
 static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 {
@@ -1188,12 +1163,7 @@ int initializeOpenVFSFuse(int argc, char *argv[])
     openVFSfuse_oper.chmod = openVFSfuse_chmod;
     openVFSfuse_oper.chown = openVFSfuse_chown;
     openVFSfuse_oper.truncate = openVFSfuse_truncate;
-#if (FUSE_USE_VERSION == 25)
-    openVFSfuse_oper.utime = openVFSfuse_utime;
-#else
     openVFSfuse_oper.utimens = openVFSfuse_utimens;
-    openVFSfuse_oper.flag_utime_omit_ok = 1;
-#endif
     openVFSfuse_oper.open = openVFSfuse_open;
     openVFSfuse_oper.read = openVFSfuse_read;
     openVFSfuse_oper.write = openVFSfuse_write;
