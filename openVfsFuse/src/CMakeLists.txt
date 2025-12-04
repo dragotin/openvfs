@@ -13,7 +13,7 @@ set (openVFS_SRC
 add_executable(openvfsfuse ${openVFS_SRC})
 target_include_directories(openvfsfuse PRIVATE 3rdparty)
 
-target_link_libraries(openvfsfuse ${FUSE_LIBRARIES} LibXml2::LibXml2 ${PCRE2_LIBRARIES})
+target_link_libraries(openvfsfuse FUSE::FUSE LibXml2::LibXml2 ${PCRE2_LIBRARIES})
 
 add_compile_definitions(ELPP_THREAD_SAFE)
 
