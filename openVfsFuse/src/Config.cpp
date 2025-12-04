@@ -56,121 +56,121 @@ Config::~Config()
 void Config::parse(xmlNode * a_node)
 {
 
-xmlNode *cur_node = NULL;
+    xmlNode *cur_node = NULL;
 
-for (cur_node = a_node; cur_node; cur_node = cur_node->next)
-	{
-	if (cur_node->type == XML_ELEMENT_NODE)
-		{
-		xmlAttr *attr=cur_node->properties;
-		if (xmlStrcmp(cur_node->name,ROOT)==0)
-			{
-			while (attr!=NULL)
-				{
-				if (xmlStrcmp(attr->name,LOG_ENABLED)==0)
-					{
-					//enable or disable openvfsfuse
-					if (xmlStrcmp(attr->children->content,xmlCharStrdup("true"))!=0)
-						{
-						enabled=false;
-						printf("Log disabled\n");
-						}
-					else	{
-						printf("Log enabled\n");
-						}
-					}
-				else if (xmlStrcmp(attr->name,PNAME_ENABLED)==0)
-					{
-					//enable or disable process name prints in openvfsfuse
-					if (xmlStrcmp(attr->children->content,xmlCharStrdup("true"))!=0)
-						{
-						pNameEnabled=false;
-						printf("print process name disabled\n");
-						}
-					else	{
-						printf("print process name enabled\n");
-						}
-					}
-				else printf("unknown attribute : %s\n",attr->name);
-				attr=attr->next;
-				}
-			}
-		if (xmlStrcmp(cur_node->name,INCLUDE)==0 || xmlStrcmp(cur_node->name,EXCLUDE)==0)
-			{
-			Filter* filter=new Filter();
-			char* buffer=new char[100];
-			while (attr!=NULL)
-				{
+    for (cur_node = a_node; cur_node; cur_node = cur_node->next)
+    {
+        if (cur_node->type == XML_ELEMENT_NODE)
+        {
+            xmlAttr *attr=cur_node->properties;
+            if (xmlStrcmp(cur_node->name,ROOT)==0)
+            {
+                while (attr!=NULL)
+                {
+                    if (xmlStrcmp(attr->name,LOG_ENABLED)==0)
+                    {
+                        //enable or disable openvfsfuse
+                        if (xmlStrcmp(attr->children->content,xmlCharStrdup("true"))!=0)
+                        {
+                            enabled=false;
+                            printf("Log disabled\n");
+                        }
+                        else	{
+                            printf("Log enabled\n");
+                        }
+                    }
+                    else if (xmlStrcmp(attr->name,PNAME_ENABLED)==0)
+                    {
+                        //enable or disable process name prints in openvfsfuse
+                        if (xmlStrcmp(attr->children->content,xmlCharStrdup("true"))!=0)
+                        {
+                            pNameEnabled=false;
+                            printf("print process name disabled\n");
+                        }
+                        else	{
+                            printf("print process name enabled\n");
+                        }
+                    }
+                    else printf("unknown attribute : %s\n",attr->name);
+                    attr=attr->next;
+                }
+            }
+            if (xmlStrcmp(cur_node->name,INCLUDE)==0 || xmlStrcmp(cur_node->name,EXCLUDE)==0)
+            {
+                Filter* filter=new Filter();
+                char* buffer=new char[100];
+                while (attr!=NULL)
+                {
 
-				sprintf(buffer,"%s",attr->children->content); // I guess there's another way to do that
-				if (xmlStrcmp(attr->name,EXTENSION)==0)
-					{
-					filter->setExtension(buffer);
-					}
-				else if (xmlStrcmp(attr->name,USER)==0)
-					{
-					if (strcmp(buffer,"*"))
-						filter->setUID(atoi(buffer));
-					else filter->setUID(-1); // every users
+                    sprintf(buffer,"%s",attr->children->content); // I guess there's another way to do that
+                    if (xmlStrcmp(attr->name,EXTENSION)==0)
+                    {
+                        filter->setExtension(buffer);
+                    }
+                    else if (xmlStrcmp(attr->name,USER)==0)
+                    {
+                        if (strcmp(buffer,"*"))
+                            filter->setUID(atoi(buffer));
+                        else filter->setUID(-1); // every users
 
-					}
-				else if (xmlStrcmp(attr->name,ACTION)==0)
-					{
-					filter->setAction(buffer);
-					}
-				else if (xmlStrcmp(attr->name,RETNAME)==0)
-					{
-					filter->setRetname(buffer);
-					}
-				else printf("unknown attribute : %s\n",attr->name);
-				attr=attr->next;
-				}
+                    }
+                    else if (xmlStrcmp(attr->name,ACTION)==0)
+                    {
+                        filter->setAction(buffer);
+                    }
+                    else if (xmlStrcmp(attr->name,RETNAME)==0)
+                    {
+                        filter->setRetname(buffer);
+                    }
+                    else printf("unknown attribute : %s\n",attr->name);
+                    attr=attr->next;
+                }
 
-			if (xmlStrcmp(cur_node->name,INCLUDE)==0)
-				{
-				includes.push_back(*filter);
-				}
-			else excludes.push_back(*filter);
-			delete[] buffer;
-			}
-    		}
+                if (xmlStrcmp(cur_node->name,INCLUDE)==0)
+                {
+                    includes.push_back(*filter);
+                }
+                else excludes.push_back(*filter);
+                delete[] buffer;
+            }
+        }
 
 
-   	parse(cur_node->children);
-	}
+        parse(cur_node->children);
+    }
 
 }
 
 bool Config::loadFromXml(xmlDoc* doc)
 {
 
-	xmlNode *root_element = NULL;
-	root_element = xmlDocGetRootElement(doc);
+    xmlNode *root_element = NULL;
+    root_element = xmlDocGetRootElement(doc);
 
-	parse(root_element);
-	xmlFreeDoc(doc);
-	xmlCleanupParser();
-	return true;
+    parse(root_element);
+    xmlFreeDoc(doc);
+    xmlCleanupParser();
+    return true;
 }
 
 bool Config::loadFromXmlBuffer(const char* buffer)
 {
-	xmlDoc *doc = NULL;
+    xmlDoc *doc = NULL;
 
-	LIBXML_TEST_VERSION
+    LIBXML_TEST_VERSION
 
-	doc=xmlReadMemory(buffer,strlen(buffer),"",NULL, XML_PARSE_NONET);
-	return loadFromXml(doc);
+            doc=xmlReadMemory(buffer,strlen(buffer),"",NULL, XML_PARSE_NONET);
+    return loadFromXml(doc);
 }
 
 bool Config::loadFromXmlFile(const char* filename)
 {
-	xmlDoc *doc = NULL;
+    xmlDoc *doc = NULL;
 
-	LIBXML_TEST_VERSION
+    LIBXML_TEST_VERSION
 
-	doc = xmlReadFile(filename, NULL, 0);
-	return loadFromXml(doc);
+            doc = xmlReadFile(filename, NULL, 0);
+    return loadFromXml(doc);
 }
 
 bool Config::shouldLog(const char* filename, int uid, const char* action, const char* retname)
@@ -178,25 +178,25 @@ bool Config::shouldLog(const char* filename, int uid, const char* action, const 
     bool should=false;
     if (enabled)
     {
-    	if (includes.size()>0)
-	{
-		for (unsigned int i=0;i<includes.size() && !should;i++)
-		{
-		Filter f=includes[i];
-		if (f.matches(filename,uid,action,retname))
-			should=true;
-		}
-		for (unsigned int i=0;i<excludes.size() && should;i++)
-		{
-		Filter f=excludes[i];
-		if (f.matches(filename,uid,action,retname))
-			should=false;
-		}
-	}
-	else
-	{
-		should=true;
-	}
+        if (includes.size()>0)
+        {
+            for (unsigned int i=0;i<includes.size() && !should;i++)
+            {
+                Filter f=includes[i];
+                if (f.matches(filename,uid,action,retname))
+                    should=true;
+            }
+            for (unsigned int i=0;i<excludes.size() && should;i++)
+            {
+                Filter f=excludes[i];
+                if (f.matches(filename,uid,action,retname))
+                    should=false;
+            }
+        }
+        else
+        {
+            should=true;
+        }
 
     }
 

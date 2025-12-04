@@ -1039,7 +1039,7 @@ static bool processArgs(int argc, char *argv[], openVFSfuse_Args *out)
     // files in gvfs to fail.
     // https://gitlab.gnome.org/GNOME/gvfs/-/blob/master/client/gvfsfusedaemon.c#L1045
 
-#define COMMON_OPTS "nonempty,use_ino,attr_timeout=0,entry_timeout=0,negative_timeout=0,atomic_o_trunc"
+#define COMMON_OPTS "attr_timeout=0,entry_timeout=0,negative_timeout=0"
 
     while ((res = getopt(argc, argv, "hpfec:l:")) != -1)
     {
