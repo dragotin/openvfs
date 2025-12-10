@@ -27,30 +27,7 @@ If you have a recent distribution it should be. FUSE can be downloaded here: [gi
 
 openVFS has the following dependencies:
 
-    fuse
-    pcre2
-    libxml2
-
-## Configuration
-
-openvfsfuse can use an XML configuration file if you want it to log operations only for certain files, for certain users, or for certain operations.
-
-Here is a sample configuration file :
-
-    <?xml version="1.0" encoding="UTF-8"?>
-
-    <loggedFS logEnabled="true" printProcessName="true">
-      <includes>
-        <include extension=".*" uid="*" action=".*" retname=".*"/>
-      </includes>
-      <excludes>
-        <exclude extension=".*\.bak$" uid="*" action=".*" retname="SUCCESS"/>
-        <exclude extension=".*" uid="1000" action=".*" retname="FAILURE"/>
-        <exclude extension=".*" uid="*" action="getattr" retname=".*"/>
-      </excludes>
-    </loggedFS>
-
-This configuration can be used to log everything except it if concerns a `*.bak` file, or if the uid is 1000, or if the operation is `getattr`.
+    fuse3
 
 ## Launching openvfsfuse
 
@@ -85,7 +62,7 @@ You should see logs like these :
 
 If you have a configuration file to use you should use this command:
 
-    ./openvfsfuse -c openvfsfuse.xml -p /var
+    ./openvfsfuse -p /var
 
 If you want to log what other users do on your filesystem, you should use the `-p` option to allow them to see your mounted files. For a complete documentation see the manual page.
 

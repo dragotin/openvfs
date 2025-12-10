@@ -14,7 +14,4 @@ add_compile_definitions(FUSE_USE_VERSION=30)
 add_compile_definitions(HAVE_SETXATTR)
 
 find_package(fuse REQUIRED)
-find_package(LibXml2)
-find_package(PCRE2)
-
 add_subdirectory(src)
