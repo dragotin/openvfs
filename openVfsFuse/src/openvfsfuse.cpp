@@ -33,20 +33,17 @@
 #include <fuse3/fuse.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/statfs.h>
-#include <unistd.h>
 #include <sys/xattr.h>
+#include <unistd.h>
 
 #include "json.hpp"
 #include "sharedmap.h"
 #include "socketthread.h"
 
-#include <getopt.h>
 #include <grp.h>
 #include <iostream>
 #include <pwd.h>
 #include <stdarg.h>
-#include <stdexcept>
 
 #include <cstring>
 #include <sstream>
@@ -58,12 +55,11 @@
 using json = nlohmann::json;
 using namespace std;
 
-#define PUSHARG(ARG)                                                                                                                                           \
-    assert(out->fuseArgc < MaxFuseArgs);                                                                                                                       \
-    out->fuseArgv[out->fuseArgc++] = ARG
+namespace {
+std::string mountPoint;
+}
 
 /* ========== Prototypes */
-static bool isAbsolutePath(const char *fileName);
 
 static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value, size_t size, int flags);
 
@@ -126,17 +122,6 @@ static SocketThread _socketThread("SocketThread", _jobs);
 
 static int _transfer_id{12};
 
-const int MaxFuseArgs = 32;
-struct openVFSfuse_Args
-{
-    char *mountPoint; // where the users read files
-    bool isDaemon; // true == spawn in background, log to syslog except if log file parameter is set
-    bool vfsOwnerOk;
-    const char *fuseArgv[MaxFuseArgs];
-    int fuseArgc;
-};
-
-static openVFSfuse_Args *openvfsfuseArgs = new openVFSfuse_Args;
 
 struct openVFSPlaceHolderAttribs
 {
@@ -165,10 +150,10 @@ static bool ends_with(const std::string &str, const char *suffix, unsigned suffi
 /*
  * Returns the name of the process which accessed the file system.
  */
-static char *getcallername()
+static char *getcallername(fuse_context *context)
 {
     char filename[100];
-    sprintf(filename, "/proc/%d/cmdline", fuse_get_context()->pid);
+    sprintf(filename, "/proc/%d/cmdline", context->pid);
     FILE *proc;
     char cmdline[256] = "";
 
@@ -194,39 +179,19 @@ static void openvfsfuse_log(const std::string &path, const char *action, const i
     vasprintf(&buf, format, args);
     va_end(args);
 
-    std::cout << path << " [ pid = " << fuse_get_context()->pid << " " << getcallername() << " uuid = " << fuse_get_context()->uid << " ]" << buf
-              << (returncode >= 0 ? "SUCCESS" : "FAILURE") << std::endl;
+    auto context = fuse_get_context();
+    if (context) {
+        std::cout << path << " [ pid = " << context->pid << " " << getcallername(context) << " uuid = " << context->uid << " ]" << buf
+                  << (returncode >= 0 ? "SUCCESS" : "FAILURE") << std::endl;
+    } else {
+        std::cout << path << " [ openvfsfuse ]" << buf << (returncode >= 0 ? "SUCCESS" : "FAILURE") << std::endl;
+    }
     free(buf);
-}
-
-static bool isAbsolutePath(const char *fileName)
-{
-    if (fileName && fileName[0] != '\0' && fileName[0] == '/')
-        return true;
-    else
-        return false;
 }
 
 static std::string getAbsolutePath(const char *path)
 {
-    std::string s{openvfsfuseArgs->mountPoint};
-    s += path;
-
-    return s;
-}
-
-static std::string absoluteToRelativePath(const char *path)
-{
-    std::string s;
-
-    int len = strlen(path) - strlen(openvfsfuseArgs->mountPoint);
-
-    if (len < 1)
-        return s;
-
-    s += ".";
-    s += (path + strlen(openvfsfuseArgs->mountPoint));
-    return s;
+    return mountPoint + path;
 }
 
 static std::string getRelativePath(const char *path)
@@ -261,14 +226,6 @@ openVFSPlaceHolderAttribs get_placeholder_attribs(const char *orig_path)
 
     const size_t size = 254;
     char val[size] = {};
-
-    // make sure the owner is correct. That means the xattr starts with
-    // the word "opencloud".
-    if (!openvfsfuseArgs->vfsOwnerOk) {
-        openvfsfuse_log("/path", "_init", 1, "**** INIT called");
-
-        return attr;
-    }
 
     attr.absolutePath = getAbsolutePath(orig_path);
 
@@ -334,7 +291,7 @@ static int openVFSfuse_access(const char *orig_path, int mask)
 
     const auto path = getRelativePath(orig_path);
     res = access(path.c_str(), mask);
-    openvfsfuse_log(path.c_str(), "access", res, "");
+    openvfsfuse_log(path, "access", res, "");
     if (res == -1)
         return -errno;
 
@@ -347,7 +304,7 @@ static int openVFSfuse_readlink(const char *orig_path, char *buf, size_t size)
 
     const auto path = getRelativePath(orig_path);
     res = readlink(path.c_str(), buf, size - 1);
-    openvfsfuse_log(path.c_str(), "readlink", res, "readlink");
+    openvfsfuse_log(path, "readlink", res, "readlink");
 
     if (res == -1)
         return -errno;
@@ -371,7 +328,7 @@ static int openVFSfuse_readdir(const char *orig_path, void *buf, fuse_fill_dir_t
     dp = opendir(path.c_str());
     if (dp == NULL) {
         res = -errno;
-        openvfsfuse_log(path.c_str(), "readdir", -1, "");
+        openvfsfuse_log(path, "readdir", -1, "");
 
         return res;
     }
@@ -386,7 +343,7 @@ static int openVFSfuse_readdir(const char *orig_path, void *buf, fuse_fill_dir_t
     }
 
     closedir(dp);
-    openvfsfuse_log(path.c_str(), "readdir", 0, "");
+    openvfsfuse_log(path, "readdir", 0, "");
 
 
     return 0;
@@ -399,23 +356,23 @@ static int openVFSfuse_mknod(const char *orig_path, mode_t mode, dev_t rdev)
 
     if (S_ISREG(mode)) {
         res = open(path.c_str(), O_CREAT | O_EXCL | O_WRONLY, mode);
-        openvfsfuse_log(path.c_str(), "mknod", res, "mknod %o S_IFREG (normal file creation)", mode);
+        openvfsfuse_log(path, "mknod", res, "mknod %o S_IFREG (normal file creation)", mode);
         if (res >= 0)
             res = close(res);
     } else if (S_ISFIFO(mode)) {
         res = mkfifo(path.c_str(), mode);
-        openvfsfuse_log(path.c_str(), "mkfifo", res, "mkfifo %o S_IFFIFO (fifo creation)", mode);
+        openvfsfuse_log(path, "mkfifo", res, "mkfifo %o S_IFFIFO (fifo creation)", mode);
     } else {
         res = mknod(path.c_str(), mode, rdev);
         if (S_ISCHR(mode)) {
-            openvfsfuse_log(path.c_str(), "mknod", res, "mknod %o (character device creation)", mode);
+            openvfsfuse_log(path, "mknod", res, "mknod %o (character device creation)", mode);
         }
         /*else if (S_IFBLK(mode))
         {
-        openvfsfuse_log(path.c_str(),"mknod",res,"mknod %o (block device creation)", mode);
+        openvfsfuse_log(path,"mknod",res,"mknod %o (block device creation)", mode);
         }*/
         else
-            openvfsfuse_log(path.c_str(), "mknod", res, "mknod %o", mode);
+            openvfsfuse_log(path, "mknod", res, "mknod %o", mode);
     }
 
 
@@ -434,7 +391,7 @@ static int openVFSfuse_mkdir(const char *orig_path, mode_t mode)
     int res;
     const auto path = getRelativePath(orig_path);
     res = mkdir(path.c_str(), mode);
-    openvfsfuse_log(path.c_str(), "mkdir", res, "mkdir mode %o", mode);
+    openvfsfuse_log(path, "mkdir", res, "mkdir mode %o", mode);
 
     if (res == -1) {
         return -errno;
@@ -449,7 +406,7 @@ static int openVFSfuse_unlink(const char *orig_path)
     int res;
     const auto path = getRelativePath(orig_path);
     res = unlink(path.c_str());
-    openvfsfuse_log(path.c_str(), "unlink", res, "");
+    openvfsfuse_log(path, "unlink", res, "");
 
     if (res == -1)
         return -errno;
@@ -462,7 +419,7 @@ static int openVFSfuse_rmdir(const char *orig_path)
     int res;
     const auto path = getRelativePath(orig_path);
     res = rmdir(path.c_str());
-    openvfsfuse_log(path.c_str(), "rmdir", res, "");
+    openvfsfuse_log(path, "rmdir", res, "");
 
     if (res == -1)
         return -errno;
@@ -526,7 +483,7 @@ static int openVFSfuse_chmod(const char *orig_path, mode_t mode, fuse_file_info 
     int res;
     const auto path = getRelativePath(orig_path);
     res = chmod(path.c_str(), mode);
-    openvfsfuse_log(path.c_str(), "chmod", res, "chmod to %o", mode);
+    openvfsfuse_log(path, "chmod", res, "chmod to %o", mode);
 
     if (res == -1) {
         return -errno;
@@ -561,9 +518,9 @@ static int openVFSfuse_chown(const char *orig_path, uid_t uid, gid_t gid, fuse_f
     char *groupname = getgroupname(gid);
 
     if (username != NULL && groupname != NULL)
-        openvfsfuse_log(path.c_str(), "chown", res, "chown to %d:%d %s:%s", uid, gid, username, groupname);
+        openvfsfuse_log(path, "chown", res, "chown to %d:%d %s:%s", uid, gid, username, groupname);
     else
-        openvfsfuse_log(path.c_str(), "chown", res, "chown to %d:%d", uid, gid);
+        openvfsfuse_log(path, "chown", res, "chown to %d:%d", uid, gid);
 
     return res;
 }
@@ -574,7 +531,7 @@ static int openVFSfuse_truncate(const char *orig_path, off_t size, fuse_file_inf
 
     const auto path = getRelativePath(orig_path);
     res = truncate(path.c_str(), size);
-    openvfsfuse_log(path.c_str(), "truncate", res, "truncate to %d bytes", size);
+    openvfsfuse_log(path, "truncate", res, "truncate to %d bytes", size);
 
     if (res == -1) {
         return -errno;
@@ -590,7 +547,7 @@ static int openVFSfuse_utimens(const char *orig_path, const struct timespec ts[2
 
     res = utimensat(AT_FDCWD, path.c_str(), ts, AT_SYMLINK_NOFOLLOW);
 
-    openvfsfuse_log(path.c_str(), "utimens", res, "");
+    openvfsfuse_log(path, "utimens", res, "");
 
     if (res == -1) {
         return -errno;
@@ -604,7 +561,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
     int res{0};
     const auto path = getRelativePath(orig_path);
 
-    const auto opener = getcallername();
+    const auto opener = getcallername(fuse_get_context());
     static auto openFlags = [] {
         auto f = OFlags<typeof(fi->flags)>("OpenFlags");
         ADD_O_FLAG(f, O_RDONLY);
@@ -627,12 +584,12 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 
     stringstream s;
     s << OFlag(openFlags, fi->flags);
-    openvfsfuse_log(path.c_str(), "open", res, "open %s %s by %s", s.str().data(), path.c_str(), opener);
+    openvfsfuse_log(path, "open", res, "open %s %s by %s", s.str().data(), path.c_str(), opener);
 
     auto attribs = get_placeholder_attribs(orig_path);
 
     if (!attribs.isOk()) {
-        openvfsfuse_log(path.c_str(), "open", 0, "Not a placeholder file");
+        openvfsfuse_log(path, "open", 0, "Not a placeholder file");
     }
 
     // The desktop client must not be blocked from accessing the file
@@ -654,7 +611,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         // ignore list of apps that must not cause a hydration
         if (ends_with(opener, "kioworker", 9) || ends_with(opener, "dolphin", 7)) {
             ok = false;
-            openvfsfuse_log(path.c_str(), "open", 0, "Blocking hydration for kio_worker");
+            openvfsfuse_log(path, "open", 0, "Blocking hydration for kio_worker");
             return -EPERM;
         }
 
@@ -668,7 +625,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
             msgData->msg = "V2/HYDRATE_FILE";
             msgData->file = attribs.absolutePath;
             msgData->fileId = attribs.fileId;
-            msgData->requester = getcallername();
+            msgData->requester = getcallername(fuse_get_context());
             msgData->id = _transfer_id; // attention: _transfer_id is global and can change!
 
             _socketThread.PostMsg(msgData); // push hydration request to msg thread
@@ -692,24 +649,24 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 
                 if (!_jobs.get(msgData->id, hj)) {
                     // The job is no longer there :-/
-                    openvfsfuse_log(path.c_str(), "open", 1, "Job queue does not have job %d", msgData->id);
+                    openvfsfuse_log(path, "open", 1, "Job queue does not have job %d", msgData->id);
                     state = -1;
                 } else {
                     state = hj.state;
-                    openvfsfuse_log(path.c_str(), "open", 1, "Found in job queue %d", state);
+                    openvfsfuse_log(path, "open", 1, "Found in job queue %d", state);
 
                     // With all the state values except 1, the loop is left
                     if (state == 0) {
                         // success!
-                        openvfsfuse_log(path.c_str(), "open", 1, "Sucessfully finished job %d", msgData->id);
+                        openvfsfuse_log(path, "open", 1, "Sucessfully finished job %d", msgData->id);
                     } else if (state == 1) {
                         // still running
                     } else if (state == -1) {
                         // fail
-                        openvfsfuse_log(path.c_str(), "open", 0, "Failed job %d", msgData->id);
+                        openvfsfuse_log(path, "open", 0, "Failed job %d", msgData->id);
                     } else if (state == 2) {
                         // timeout
-                        openvfsfuse_log(path.c_str(), "open", 0, "Job %d timed out", msgData->id);
+                        openvfsfuse_log(path, "open", 0, "Job %d timed out", msgData->id);
                     }
                 }
             }
@@ -720,16 +677,16 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 
             if (state == -1 || state == 2) {
                 // Fail, job with ID was errornous
-                openvfsfuse_log(path.c_str(), "open", 1, "ERROR while retrieving: %d", state);
+                openvfsfuse_log(path, "open", 1, "ERROR while retrieving: %d", state);
                 return -ENOENT;
             }
 
             if (cnt >= MaxCnt) {
-                openvfsfuse_log(path.c_str(), "open", MaxCnt, "TIMEOUT - no answer from client");
+                openvfsfuse_log(path, "open", MaxCnt, "TIMEOUT - no answer from client");
                 return -ENOENT;
             }
         }
-        openvfsfuse_log(path.c_str(), "open", 0, "-- open finished");
+        openvfsfuse_log(path, "open", 0, "-- open finished");
     }
 
     // File is not dehydrated and it is just going to be opened
@@ -747,13 +704,13 @@ static int openVFSfuse_read(const char *orig_path, char *buf, size_t size, off_t
     int res;
     const auto path = getRelativePath(orig_path);
 
-    openvfsfuse_log(path.c_str(), "read", 0, "read %d bytes at offset %d", size, offset);
+    openvfsfuse_log(path, "read", 0, "read %d bytes at offset %d", size, offset);
     res = pread(fi->fh, buf, size, offset);
     if (res == -1) {
         res = -errno;
-        openvfsfuse_log(path.c_str(), "read", -1, "read %d bytes at offset %d", size, offset);
+        openvfsfuse_log(path, "read", -1, "read %d bytes at offset %d", size, offset);
     } else {
-        openvfsfuse_log(path.c_str(), "read", 0, "%d bytes read at offset %d", res, offset);
+        openvfsfuse_log(path, "read", 0, "%d bytes read at offset %d", res, offset);
     }
 
     return res;
@@ -769,11 +726,11 @@ static int openVFSfuse_write(const char *orig_path, const char *buf, size_t size
     fd = open(path.c_str(), O_WRONLY);
     if (fd == -1) {
         res = -errno;
-        openvfsfuse_log(path.c_str(), "write", -1, "write %d bytes to %s at offset %d", size, path.c_str(), offset);
+        openvfsfuse_log(path, "write", -1, "write %d bytes to %s at offset %d", size, path.c_str(), offset);
 
         return res;
     } else {
-        openvfsfuse_log(path.c_str(), "write", 0, "write %d bytes to %s at offset %d", size, path.c_str(), offset);
+        openvfsfuse_log(path, "write", 0, "write %d bytes to %s at offset %d", size, path.c_str(), offset);
     }
 
     res = pwrite(fd, buf, size, offset);
@@ -781,7 +738,7 @@ static int openVFSfuse_write(const char *orig_path, const char *buf, size_t size
     if (res == -1)
         res = -errno;
     else
-        openvfsfuse_log(path.c_str(), "write", 0, "%d bytes written to %s at offset %d", res, path.c_str(), offset);
+        openvfsfuse_log(path, "write", 0, "%d bytes written to %s at offset %d", res, path.c_str(), offset);
 
     close(fd);
 
@@ -794,7 +751,7 @@ static int openVFSfuse_statfs(const char *orig_path, struct statvfs *stbuf)
     int res;
     const auto path = getRelativePath(orig_path);
     res = statvfs(path.c_str(), stbuf);
-    openvfsfuse_log(path.c_str(), "statfs", res, "");
+    openvfsfuse_log(path, "statfs", res, "");
 
     if (res == -1)
         return -errno;
@@ -807,7 +764,7 @@ static int openVFSfuse_release(const char *orig_path, struct fuse_file_info *fi)
     (void)orig_path;
     const auto path = getRelativePath(orig_path);
 
-    openvfsfuse_log(path.c_str(), "close", 0, "");
+    openvfsfuse_log(path, "close", 0, "");
 
     close(fi->fh);
     return 0;
@@ -820,7 +777,7 @@ static int openVFSfuse_fsync(const char *orig_path, int isdatasync, struct fuse_
     (void)orig_path;
     (void)isdatasync;
     (void)fi;
-    openvfsfuse_log(path.c_str(), "fsync", 0, "");
+    openvfsfuse_log(path, "fsync", 0, "");
 
     return 0;
 }
@@ -832,7 +789,7 @@ static int openVFSfuse_setxattr(const char *orig_path, const char *name, const c
 
     int res;
     res = lsetxattr(path.c_str(), name, value, size, flags);
-    openvfsfuse_log(path.c_str(), "setxattr", res, "%s = %s", name, std::string(value, size).data());
+    openvfsfuse_log(path, "setxattr", res, "%s = %s", name, std::string(value, size).data());
 
 
     if (res == -1)
@@ -853,7 +810,7 @@ static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *v
         res = 0;
     }
 
-    openvfsfuse_log(path.c_str(), "getxattr", res, "attrib name %s %s", name, errno == ENODATA ? "(attrib not found)" : "");
+    openvfsfuse_log(path, "getxattr", res, "attrib name %s %s", name, errno == ENODATA ? "(attrib not found)" : "");
 
     if (res == -1)
         return -errno;
@@ -869,7 +826,7 @@ static int openVFSfuse_listxattr(const char *orig_path, char *list, size_t size)
 {
     const auto path = getRelativePath(orig_path);
     int res = llistxattr(path.c_str(), list, size);
-    openvfsfuse_log(path.c_str(), "listxattr", res, "");
+    openvfsfuse_log(path, "listxattr", res, "");
 
     if (res == -1)
         return -errno;
@@ -881,130 +838,19 @@ static int openVFSfuse_removexattr(const char *orig_path, const char *name)
     const auto path = getRelativePath(orig_path);
 
     int res = lremovexattr(path.c_str(), name);
-    openvfsfuse_log(path.c_str(), "removexattr", 0, "remove %s", name);
+    openvfsfuse_log(path, "removexattr", 0, "remove %s", name);
 
     if (res == -1)
         return -errno;
     return 0;
 }
 
-static void usage(char *name)
+int initializeOpenVFSFuse(const std::string &_mountPoint, const std::vector<std::string> &fuseArgs)
 {
-    std::cerr << "Usage:" << std::endl //
-              << name << " [-h] | [-f] [-p] [-e] /directory-mountpoint" << std::endl //
-              << "Type 'man openvfsfuse' for more details" << std::endl;
-}
+    mountPoint = _mountPoint;
 
-static bool processArgs(int argc, char *argv[], openVFSfuse_Args *out)
-{
-    // set defaults
-    out->isDaemon = true;
-
-    out->fuseArgc = 0;
-
-    // pass executable name through
-    out->fuseArgv[0] = argv[0];
-    ++out->fuseArgc;
-
-    // leave a space for mount point, as FUSE expects the mount point before
-    // any flags
-    out->fuseArgv[1] = NULL;
-    ++out->fuseArgc;
-    opterr = 0;
-
-    int res;
-
-    bool got_p = false;
-
-    // We need the "nonempty" option to mount the directory in recent FUSE's
-    // because it's non empty and contains the files that will be logged.
-    //
-    // We need "use_ino" so the files will use their original inode numbers,
-    // instead of all getting 0xFFFFFFFF . For example, this is required for
-    // logging the ~/.kde/share/config directory, in which hard links for lock
-    // files are verified by their inode equivalency.
-    //
-    // We need "atomic_o_trunc" option. if not, then FUSE will call truncate()
-    // function before calling open(). if the option was set, the O_TRUNC flag
-    // is passed to open() function. Without this flag, this will cause opening
-    // files in gvfs to fail.
-    // https://gitlab.gnome.org/GNOME/gvfs/-/blob/master/client/gvfsfusedaemon.c#L1045
-
-#define COMMON_OPTS "attr_timeout=0,entry_timeout=0,negative_timeout=0"
-
-    while ((res = getopt(argc, argv, "hpfe:")) != -1) {
-        switch (res) {
-        case 'h':
-            usage(argv[0]);
-            return false;
-        case 'f':
-            out->isDaemon = false;
-            // this option was added in fuse 2.x
-            PUSHARG("-f");
-            std::cout << "openVFSfuse not running as a daemon" << std::endl;
-            break;
-        case 'p':
-            PUSHARG("-o");
-            PUSHARG("allow_other,default_permissions," COMMON_OPTS);
-            got_p = true;
-            std::cout << "openVFSfuse running as a public filesystem" << std::endl;
-            break;
-        case 'e':
-            PUSHARG("-o");
-            PUSHARG("nonempty");
-            std::cout << "Using existing directory" << std::endl;
-            ;
-            break;
-        default:
-            assert(false);
-            break;
-        }
-    }
-
-    if (!got_p) {
-        PUSHARG("-o");
-        PUSHARG(COMMON_OPTS);
-    }
-#undef COMMON_OPTS
-
-    if (optind + 1 <= argc) {
-        out->mountPoint = argv[optind++];
-        out->fuseArgv[1] = out->mountPoint;
-    } else {
-        std::cerr << "Missing mountpoint" << std::endl;
-        ;
-        usage(argv[0]);
-        return false;
-    }
-
-    // If there are still extra unparsed arguments, pass them onto FUSE..
-    if (optind < argc) {
-        assert(out->fuseArgc < MaxFuseArgs);
-
-        while (optind < argc) {
-            assert(out->fuseArgc < MaxFuseArgs);
-            out->fuseArgv[out->fuseArgc++] = argv[optind];
-            ++optind;
-        }
-    }
-
-    if (!isAbsolutePath(out->mountPoint)) {
-        std::cerr << "You must use absolute paths (beginning with '/') for " << out->mountPoint << std::endl;
-        return false;
-    }
-
-    return true;
-}
-
-
-int initializeOpenVFSFuse(int argc, char *argv[])
-{
     umask(0);
-    fuse_operations openVFSfuse_oper;
-    // in case this code is compiled against a newer FUSE library and new
-    // members have been added to fuse_operations, make sure they get set to
-    // 0..
-    memset(&openVFSfuse_oper, 0, sizeof(fuse_operations));
+    fuse_operations openVFSfuse_oper = {};
     openVFSfuse_oper.init = openVFSfuse_init;
     openVFSfuse_oper.getattr = openVFSfuse_getattr;
     openVFSfuse_oper.access = openVFSfuse_access;
@@ -1032,36 +878,32 @@ int initializeOpenVFSFuse(int argc, char *argv[])
     openVFSfuse_oper.listxattr = openVFSfuse_listxattr;
     openVFSfuse_oper.removexattr = openVFSfuse_removexattr;
 
-    for (int i = 0; i < MaxFuseArgs; ++i)
-        openvfsfuseArgs->fuseArgv[i] = NULL; // libfuse expects null args..
 
-    if (processArgs(argc, argv, openvfsfuseArgs)) {
-        std::cout << "openVFSfuse starting at" << openvfsfuseArgs->mountPoint << "." << std::endl;
+    std::cout << "chdir to" << mountPoint << std::endl;
+    chdir(mountPoint.c_str());
+    savefd = open(".", 0);
 
-        // check ownership on the mountpoint
-        openvfsfuseArgs->vfsOwnerOk = false;
-        char value[255];
-        int res = lgetxattr(openvfsfuseArgs->mountPoint, "user.openvfs.owner", value, 255);
-        if (strncmp(value, "opencloud", 9) == 0) {
-            openvfsfuseArgs->vfsOwnerOk = true;
-        }
-
-        if (res == -1) {
-            std::cout << "Root directory does not have owner info" << std::endl;
-            ;
-            // return -errno;
-        }
-
-        std::cout << "chdir to" << openvfsfuseArgs->mountPoint << std::endl;
-        chdir(openvfsfuseArgs->mountPoint);
-        savefd = open(".", 0);
-
-        _socketThread.CreateThread();
-
-        fuse_main(openvfsfuseArgs->fuseArgc, const_cast<char **>(openvfsfuseArgs->fuseArgv), &openVFSfuse_oper, NULL);
-
-        std::cout << "openVFSfuse closing." << std::endl;
+    // check ownership on the mountpoint
+    char value[255];
+    int res = openVFSfuse_getxattr("/", "user.openvfs.owner", value, 255);
+    if (res < 0) {
+        std::cout << "Root directory does not have owner info" << std::endl;
+        return -errno;
+    }
+    const auto owner = std::string(value, res);
+    if (!owner.starts_with("opencloud")) {
+        std::cout << "Root directory has invalid owner info" << owner << std::endl;
+        return -errno;
     }
 
-    return 0;
+    _socketThread.CreateThread();
+
+    const char *fuseArgsArray[fuseArgs.size()];
+    for (int i = 0; i < fuseArgs.size(); i++) {
+        fuseArgsArray[i] = fuseArgs[i].data();
+    }
+    const auto out = fuse_main(fuseArgs.size(), const_cast<char **>(fuseArgsArray), &openVFSfuse_oper, nullptr);
+
+    std::cout << "openVFSfuse closing." << std::endl;
+    return out;
 }
