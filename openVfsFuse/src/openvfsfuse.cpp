@@ -39,17 +39,14 @@
 #include <sys/xattr.h>
 #endif
 
-#include <easylogging++.h>
 #include "json.hpp"
 #include "socketthread.h"
 #include "sharedmap.h"
 
 #include <stdarg.h>
 #include <getopt.h>
-#include <sys/time.h>
 #include <pwd.h>
 #include <grp.h>
-#include "Config.h"
 #include <stdexcept>
 #include <iostream>
 
@@ -59,24 +56,12 @@
 #include "openvfsfuse.h"
 #include "flags.h"
 
-INITIALIZE_EASYLOGGINGPP
 
 using json = nlohmann::json;
 using namespace std;
 
-#define STR(X) #X
-#define rAssert(cond)                                     \
-    do                                                    \
-{                                                     \
-    if ((cond) == false)                              \
-{                                                 \
-    LOG(ERROR) << "Assert failed: " << STR(cond); \
-    throw std::runtime_error(STR(cond));          \
-    }                                                 \
-    } while (false)
-
 #define PUSHARG(ARG)                      \
-    rAssert(out->fuseArgc < MaxFuseArgs); \
+    assert(out->fuseArgc < MaxFuseArgs); \
     out->fuseArgv[out->fuseArgc++] = ARG
 
 /* ========== Prototypes */
@@ -148,7 +133,6 @@ static int openVFSfuse_removexattr(const char *orig_path, const char *name);
 #endif /* HAVE_SETXATTR */
 
 
-static Config config;
 static int savefd;
 
 static SharedMap _jobs;
@@ -156,18 +140,11 @@ static SocketThread _socketThread("SocketThread", _jobs);
 
 static int _transfer_id{12};
 
-static el::base::DispatchAction dispatchAction = el::base::DispatchAction::NormalLog;
-static const char *loggerId = "default";
-static const char *additionalInfoFormat = " %s [ pid = %d %s uid = %d ]";
-static el::Logger *defaultLogger;
-
 const int MaxFuseArgs = 32;
 struct openVFSfuse_Args
 {
     char *mountPoint; // where the users read files
-    char *configFilename;
     bool isDaemon; // true == spawn in background, log to syslog except if log file parameter is set
-    bool logToSyslog;
     bool vfsOwnerOk;
     const char *fuseArgv[MaxFuseArgs];
     int fuseArgc;
@@ -224,45 +201,17 @@ static char *getcallername()
 
 static void openvfsfuse_log(const std::string& path, const char *action, const int returncode, const char *format, ...)
 {
-    const char *retname;
-
     // FIXME - whitelist of pathes that are not logged at all?
     if (path == "./.OpenCloudSync.log") return;
 
-    if (returncode >= 0)
-        retname = "SUCCESS";
-    else
-        retname = "FAILURE";
+    va_list args;
+    char *buf = nullptr;
+    va_start(args, format);
+    vasprintf(&buf, format, args);
+    va_end(args);
 
-    const char *cpath = path.c_str();
-
-    if (config.shouldLog(cpath, fuse_get_context()->uid, action, retname))
-    {
-        va_list args;
-        char *buf = NULL;
-        char *additionalInfo = NULL;
-
-        char *caller_name = getcallername();
-        asprintf(&additionalInfo, additionalInfoFormat, cpath, fuse_get_context()->pid, config.isPrintProcessNameEnabled() ? caller_name : "",
-                 fuse_get_context()->uid);
-
-        va_start(args, format);
-        vasprintf(&buf, format, args);
-        va_end(args);
-
-        if (returncode >= 0)
-        {
-            ELPP_WRITE_LOG(el::base::Writer, el::Level::Info, dispatchAction, "default") << action << buf << additionalInfo;
-        }
-        else
-        {
-            ELPP_WRITE_LOG(el::base::Writer, el::Level::Error, dispatchAction, "default") << action << buf << additionalInfo;
-        }
-
-        free(buf);
-        free(additionalInfo);
-        free(caller_name);
-    }
+    std::cout << path << " [ pid = " << fuse_get_context()->pid << " " << getcallername() << " uuid = " << fuse_get_context()->uid << " ]" << buf << (returncode >=0 ? "SUCCESS" : "FAILURE") << std::endl;
+    free(buf);
 }
 
 static bool isAbsolutePath(const char *fileName)
@@ -976,20 +925,17 @@ static int openVFSfuse_removexattr(const char *orig_path, const char *name)
 
 static void usage(char *name)
 {
-    fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "%s [-h] | [-l log-file] [-c config-file] [-f] [-p] [-e] /directory-mountpoint\n", name);
-    fprintf(stderr, "Type 'man openvfsfuse' for more details\n");
-    return;
+    std::cerr << "Usage:" << std::endl //
+    << name << " [-h] | [-f] [-p] [-e] /directory-mountpoint" << std::endl //
+    <<  "Type 'man openvfsfuse' for more details" << std::endl;
 }
 
 static bool processArgs(int argc, char *argv[], openVFSfuse_Args *out)
 {
     // set defaults
     out->isDaemon = true;
-    out->logToSyslog = true;
 
     out->fuseArgc = 0;
-    out->configFilename = NULL;
 
     // pass executable name through
     out->fuseArgv[0] = argv[0];
@@ -1021,7 +967,7 @@ static bool processArgs(int argc, char *argv[], openVFSfuse_Args *out)
 
 #define COMMON_OPTS "attr_timeout=0,entry_timeout=0,negative_timeout=0"
 
-    while ((res = getopt(argc, argv, "hpfec:l:")) != -1)
+    while ((res = getopt(argc, argv, "hpfe:")) != -1)
     {
         switch (res)
         {
@@ -1030,40 +976,23 @@ static bool processArgs(int argc, char *argv[], openVFSfuse_Args *out)
             return false;
         case 'f':
             out->isDaemon = false;
-            out->logToSyslog = false;
             // this option was added in fuse 2.x
             PUSHARG("-f");
-            defaultLogger->info("openVFSfuse not running as a daemon");
+            std::cout << "openVFSfuse not running as a daemon" << std::endl;
             break;
         case 'p':
             PUSHARG("-o");
             PUSHARG("allow_other,default_permissions," COMMON_OPTS);
             got_p = true;
-            defaultLogger->info("openVFSfuse running as a public filesystem");
+            std::cout << "openVFSfuse running as a public filesystem" <<  std::endl;
             break;
         case 'e':
             PUSHARG("-o");
             PUSHARG("nonempty");
-            defaultLogger->info("Using existing directory");
+            std::cout << "Using existing directory"<< std::endl;;
             break;
-        case 'c':
-            out->configFilename = optarg;
-            defaultLogger->info("Configuration file : %v", optarg);
-            break;
-        case 'l':
-        {
-            defaultLogger->info("openVFSfuse log file : %v, no syslog logs", optarg);
-            out->logToSyslog = false;
-            el::Configurations defaultConf;
-            defaultConf.setToDefault();
-            defaultConf.setGlobally(el::ConfigurationType::ToFile, std::string("true"));
-            defaultConf.setGlobally(el::ConfigurationType::ToStandardOutput, std::string("false"));
-            defaultConf.setGlobally(el::ConfigurationType::Filename, std::string(optarg));
-            el::Loggers::reconfigureLogger("default", defaultConf);
-            defaultLogger = el::Loggers::getLogger("default");
-            break;
-        }
         default:
+            assert(false);
             break;
         }
     }
@@ -1082,7 +1011,7 @@ static bool processArgs(int argc, char *argv[], openVFSfuse_Args *out)
     }
     else
     {
-        fprintf(stderr, "Missing mountpoint\n");
+        std::cerr << "Missing mountpoint" << std::endl;;
         usage(argv[0]);
         return false;
     }
@@ -1090,11 +1019,11 @@ static bool processArgs(int argc, char *argv[], openVFSfuse_Args *out)
     // If there are still extra unparsed arguments, pass them onto FUSE..
     if (optind < argc)
     {
-        rAssert(out->fuseArgc < MaxFuseArgs);
+        assert(out->fuseArgc < MaxFuseArgs);
 
         while (optind < argc)
         {
-            rAssert(out->fuseArgc < MaxFuseArgs);
+            assert(out->fuseArgc < MaxFuseArgs);
             out->fuseArgv[out->fuseArgc++] = argv[optind];
             ++optind;
         }
@@ -1102,9 +1031,7 @@ static bool processArgs(int argc, char *argv[], openVFSfuse_Args *out)
 
     if (!isAbsolutePath(out->mountPoint))
     {
-        fprintf(stderr, "You must use absolute paths "
-                        "(beginning with '/') for %s\n",
-                out->mountPoint);
+        std::cerr << "You must use absolute paths (beginning with '/') for " << out->mountPoint << std::endl;
         return false;
     }
 
@@ -1114,14 +1041,6 @@ static bool processArgs(int argc, char *argv[], openVFSfuse_Args *out)
 
 int initializeOpenVFSFuse(int argc, char *argv[])
 {
-    el::Configurations defaultConf;
-    defaultConf.setToDefault();
-    defaultConf.setGlobally(el::ConfigurationType::ToFile, std::string("false"));
-    el::Loggers::reconfigureLogger("default", defaultConf);
-    defaultLogger = el::Loggers::getLogger("default");
-
-    char *input = new char[2048]; // 2ko MAX input for configuration
-
     umask(0);
     fuse_operations openVFSfuse_oper;
     // in case this code is compiled against a newer FUSE library and new
@@ -1163,38 +1082,7 @@ int initializeOpenVFSFuse(int argc, char *argv[])
     if (processArgs(argc, argv, openvfsfuseArgs))
     {
 
-        if (openvfsfuseArgs->logToSyslog)
-        {
-            dispatchAction = el::base::DispatchAction::SysLog;
-            loggerId = "syslog";
-        }
-
-        defaultLogger->info("openVFSfuse starting at %v.", openvfsfuseArgs->mountPoint);
-
-        if (openvfsfuseArgs->configFilename != NULL)
-        {
-
-            if (strcmp(openvfsfuseArgs->configFilename, "-") == 0)
-            {
-                defaultLogger->info("Using stdin configuration");
-                memset(input, 0, 2048);
-                char *ptr = input;
-
-                int size = 0;
-                do
-                {
-                    size = fread(ptr, 1, 1, stdin);
-                    ptr++;
-                } while (!feof(stdin) && size > 0);
-                config.loadFromXmlBuffer(input);
-            }
-            else
-            {
-                defaultLogger->info("Using configuration file %v.", openvfsfuseArgs->configFilename);
-                config.loadFromXmlFile(openvfsfuseArgs->configFilename);
-            }
-        }
-        delete[] input;
+        std::cout << "openVFSfuse starting at" << openvfsfuseArgs->mountPoint << "." << std::endl;
 
         // check ownership on the mountpoint
         openvfsfuseArgs->vfsOwnerOk = false;
@@ -1205,11 +1093,11 @@ int initializeOpenVFSFuse(int argc, char *argv[])
         }
 
         if (res == -1) {
-            defaultLogger->info("Root directory does not have owner info");
+            std::cout << "Root directory does not have owner info" << std::endl;;
             // return -errno;
         }
 
-        defaultLogger->info("chdir to %v", openvfsfuseArgs->mountPoint);
+        std::cout << "chdir to" << openvfsfuseArgs->mountPoint << std::endl;
         chdir(openvfsfuseArgs->mountPoint);
         savefd = open(".", 0);
 
@@ -1223,7 +1111,7 @@ int initializeOpenVFSFuse(int argc, char *argv[])
                   const_cast<char **>(openvfsfuseArgs->fuseArgv), &openVFSfuse_oper, NULL);
 #endif
 
-        defaultLogger->info("openVFSfuse closing.");
+        std::cout << "openVFSfuse closing." << std::endl;
     }
 
     return 0;

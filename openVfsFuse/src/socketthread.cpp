@@ -21,7 +21,6 @@
 */
 
 #include "socketthread.h"
-#include "Fault.h"
 #include "sharedmap.h"
 #include "json.hpp"
 
@@ -34,9 +33,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#ifdef WIN32
-#include <Windows.h>
-#endif
 
 using namespace std;
 
@@ -255,7 +251,7 @@ void SocketThread::handleReceivedMsg(const std::string& rawmsg)
 //----------------------------------------------------------------------------
 std::thread::id SocketThread::GetThreadId()
 {
-	ASSERT_TRUE(m_thread != nullptr);
+	assert(m_thread != nullptr);
 	return m_thread->get_id();
 }
 
@@ -329,7 +325,7 @@ void SocketThread::PostMsg(std::shared_ptr<MsgData> data)
 {
 	if (m_exit.load())
 		return;
-	ASSERT_TRUE(m_thread);
+	assert(m_thread);
 
 	// Create a new ThreadMsg
     std::shared_ptr<ThreadMsg> threadMsg(new ThreadMsg(MSG_POST_USER_DATA, data));
@@ -392,7 +388,7 @@ void SocketThread::Process()
         {
         case MSG_POST_USER_DATA:
         {
-            ASSERT_TRUE(msg->msg != NULL);
+            assert(msg->msg != NULL);
 
             auto msgData = std::static_pointer_cast<MsgData>(msg->msg);
             cout << "Sending " << msgData->id << ": "<< msgData->msg.c_str() << " " << msgData->file << " on " << THREAD_NAME << endl;
@@ -431,7 +427,7 @@ void SocketThread::Process()
         }
 
         default:
-            ASSERT();
+            assert(false);
     }
 }
 }
