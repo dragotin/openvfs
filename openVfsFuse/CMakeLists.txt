@@ -11,7 +11,6 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 add_compile_definitions(_FILE_OFFSET_BITS=64)
 add_compile_definitions(FUSE_USE_VERSION=30)
-add_compile_definitions(HAVE_SETXATTR)
 
 find_package(fuse REQUIRED)
 add_subdirectory(src)

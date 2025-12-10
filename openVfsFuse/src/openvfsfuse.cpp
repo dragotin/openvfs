@@ -35,9 +35,7 @@
 #include <string.h>
 #include <sys/statfs.h>
 #include <unistd.h>
-#ifdef HAVE_SETXATTR
 #include <sys/xattr.h>
-#endif
 
 #include "json.hpp"
 #include "sharedmap.h"
@@ -113,8 +111,6 @@ static int openVFSfuse_statfs(const char *orig_path, struct statvfs *stbuf);
 static int openVFSfuse_release(const char *orig_path, struct fuse_file_info *fi);
 static int openVFSfuse_fsync(const char *orig_path, int isdatasync, struct fuse_file_info *fi);
 
-
-#ifdef HAVE_SETXATTR
 /* xattr operations are optional and can safely be left unimplemented */
 static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value, size_t size, int flags);
 
@@ -122,8 +118,6 @@ static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *v
 static int openVFSfuse_listxattr(const char *orig_path, char *list, size_t size);
 
 static int openVFSfuse_removexattr(const char *orig_path, const char *name);
-#endif /* HAVE_SETXATTR */
-
 
 static int savefd;
 
@@ -831,7 +825,6 @@ static int openVFSfuse_fsync(const char *orig_path, int isdatasync, struct fuse_
     return 0;
 }
 
-#ifdef HAVE_SETXATTR
 /* xattr operations are optional and can safely be left unimplemented */
 static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value, size_t size, int flags)
 {
@@ -894,7 +887,6 @@ static int openVFSfuse_removexattr(const char *orig_path, const char *name)
         return -errno;
     return 0;
 }
-#endif /* HAVE_SETXATTR */
 
 static void usage(char *name)
 {
@@ -1035,12 +1027,10 @@ int initializeOpenVFSFuse(int argc, char *argv[])
     openVFSfuse_oper.statfs = openVFSfuse_statfs;
     openVFSfuse_oper.release = openVFSfuse_release;
     openVFSfuse_oper.fsync = openVFSfuse_fsync;
-#ifdef HAVE_SETXATTR
     openVFSfuse_oper.setxattr = openVFSfuse_setxattr;
     openVFSfuse_oper.getxattr = openVFSfuse_getxattr;
     openVFSfuse_oper.listxattr = openVFSfuse_listxattr;
     openVFSfuse_oper.removexattr = openVFSfuse_removexattr;
-#endif
 
     for (int i = 0; i < MaxFuseArgs; ++i)
         openvfsfuseArgs->fuseArgv[i] = NULL; // libfuse expects null args..
