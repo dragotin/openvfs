@@ -26,6 +26,6 @@
 #define _X_SOURCE 500
 #endif
 
+#include <vector>
 
-/* Prototypes */
-int initializeOpenVFSFuse(int argc, char *argv[]);
+int initializeOpenVFSFuse(const std::string &mountPoint, const std::vector<std::string> &fuseArgs);
