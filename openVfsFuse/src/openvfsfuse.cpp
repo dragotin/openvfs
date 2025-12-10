@@ -1058,11 +1058,7 @@ int initializeOpenVFSFuse(int argc, char *argv[])
 
         _socketThread.CreateThread();
 
-#if (FUSE_USE_VERSION == 25)
-        fuse_main(openvfsfuseArgs->fuseArgc, const_cast<char **>(openvfsfuseArgs->fuseArgv), &openVFSfuse_oper);
-#else
         fuse_main(openvfsfuseArgs->fuseArgc, const_cast<char **>(openvfsfuseArgs->fuseArgv), &openVFSfuse_oper, NULL);
-#endif
 
         std::cout << "openVFSfuse closing." << std::endl;
     }
