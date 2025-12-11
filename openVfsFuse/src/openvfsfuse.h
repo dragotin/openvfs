@@ -29,3 +29,4 @@
 #include <vector>
 
 int initializeOpenVFSFuse(const std::string &mountPoint, const std::vector<std::string> &fuseArgs);
+void openvfsfuse_log(const std::string &path, const char *action, int returncode, const char *format, ...);
