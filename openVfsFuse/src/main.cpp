@@ -30,7 +30,7 @@ std::string fuseStandardArgs = "attr_timeout=0,entry_timeout=0,negative_timeout=
 
 struct openVFSfuse_Args
 {
-    std::string mountPoint; // where the users read files
+    std::filesystem::path mountPoint; // where the users read files
     bool isDaemon = true; // true == spawn in background
     std::vector<std::string> fuseArgv;
 };
@@ -47,10 +47,6 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
     openVFSfuse_Args out;
     // pass executable name through
     out.fuseArgv.emplace_back(argv[0]);
-
-    // leave a space for mount point, as FUSE expects the mount point before
-    // any flags
-    out.fuseArgv.emplace_back();
     opterr = 0;
 
     int res;
@@ -74,11 +70,6 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
             got_p = true;
             std::cout << "openVFSfuse running as a public filesystem" << std::endl;
             break;
-        case 'e':
-            out.fuseArgv.emplace_back("-o");
-            out.fuseArgv.emplace_back("nonempty");
-            std::cout << "Using existing directory" << std::endl;
-            break;
         default:
             assert(false);
             break;
@@ -91,8 +82,8 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
     }
 
     if (optind + 1 <= argc) {
-        out.mountPoint = argv[optind++];
-        out.fuseArgv[1] = out.mountPoint.c_str();
+        out.mountPoint = std::filesystem::canonical(argv[optind++]);
+        out.fuseArgv.emplace_back(out.mountPoint);
     } else {
         std::cerr << "Missing mountpoint" << std::endl;
         usage(argv[0]);
@@ -110,7 +101,7 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
         }
     }
 
-    if (!std::filesystem::path(out.mountPoint).is_absolute()) {
+    if (!out.mountPoint.is_absolute()) {
         std::cerr << "You must use absolute paths (beginning with '/') for " << out.mountPoint << std::endl;
         return {};
     }
