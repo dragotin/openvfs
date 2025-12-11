@@ -50,6 +50,7 @@
 
 #include "flags.h"
 #include "openvfsfuse.h"
+#include "xattr.h"
 
 
 using json = nlohmann::json;
@@ -57,6 +58,60 @@ using namespace std;
 
 namespace {
 std::string mountPoint;
+
+std::string getAbsolutePath(const char *path)
+{
+    return mountPoint + path;
+}
+
+}
+
+
+namespace OpenVfsAttr {
+struct openVFSPlaceHolderAttribs
+{
+    std::string absolutePath;
+    std::string etag;
+    std::string fileId;
+    std::size_t fSize = 0;
+    std::string action;
+    std::string state;
+    std::string pinState;
+
+    bool isOk() const { return !absolutePath.empty(); }
+};
+
+std::optional<std::size_t> get_file_size(const std::string &path)
+{
+    if (auto size = Xattr::CPP::getxattr(path, "user.openvfs.fsize")) {
+        try {
+            return std::stoull(size.value());
+        } catch (std::invalid_argument const &ex) {
+            std::cerr << "Invalid file size: " << size.value() << std::endl;
+        } catch (std::out_of_range const &ex) {
+            std::cerr << "File size out of range: " << size.value() << std::endl;
+        }
+    }
+    return {};
+}
+
+
+openVFSPlaceHolderAttribs get_placeholder_attribs(const char *orig_path)
+{
+    openVFSPlaceHolderAttribs attr{};
+
+    attr.absolutePath = getAbsolutePath(orig_path);
+
+    attr.etag = Xattr::CPP::getxattr(orig_path, "user.openvfs.etag").value_or({});
+    attr.fileId = Xattr::CPP::getxattr(orig_path, "user.openvfs.fileid").value_or({});
+    attr.fSize = get_file_size(orig_path).value_or(0);
+    attr.action = Xattr::CPP::getxattr(orig_path, "user.openvfs.action").value_or({});
+    attr.state = Xattr::CPP::getxattr(orig_path, "user.openvfs.state").value_or({});
+    attr.pinState = Xattr::CPP::getxattr(orig_path, "user.openvfs.pinstate").value_or({});
+
+    return attr;
+}
+
 }
 
 /* ========== Prototypes */
@@ -123,19 +178,6 @@ static SocketThread _socketThread("SocketThread", _jobs);
 static int _transfer_id{12};
 
 
-struct openVFSPlaceHolderAttribs
-{
-    std::string absolutePath;
-    std::string etag;
-    std::string fileId;
-    std::size_t fSize;
-    std::string action;
-    std::string state;
-    std::string pinState;
-
-    bool isOk() const { return !absolutePath.empty(); }
-};
-
 /* == Prototypes == */
 static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value, size_t size, int flags);
 
@@ -167,7 +209,7 @@ static char *getcallername(fuse_context *context)
     return strdup(cmdline);
 }
 
-static void openvfsfuse_log(const std::string &path, const char *action, const int returncode, const char *format, ...)
+void openvfsfuse_log(const std::string &path, const char *action, int returncode, const char *format, ...)
 {
     // FIXME - whitelist of pathes that are not logged at all?
     if (path == "./.OpenCloudSync.log")
@@ -187,11 +229,6 @@ static void openvfsfuse_log(const std::string &path, const char *action, const i
         std::cout << path << " [ openvfsfuse ]" << buf << (returncode >= 0 ? "SUCCESS" : "FAILURE") << std::endl;
     }
     free(buf);
-}
-
-static std::string getAbsolutePath(const char *path)
-{
-    return mountPoint + path;
 }
 
 static std::string getRelativePath(const char *path)
@@ -220,68 +257,20 @@ static void *openVFSfuse_init(struct fuse_conn_info *info, fuse_config *cfg)
     return NULL;
 }
 
-openVFSPlaceHolderAttribs get_placeholder_attribs(const char *orig_path)
-{
-    openVFSPlaceHolderAttribs attr{};
-
-    const size_t size = 254;
-    char val[size] = {};
-
-    attr.absolutePath = getAbsolutePath(orig_path);
-
-    int read = openVFSfuse_getxattr(orig_path, "user.openvfs.etag", val, size);
-    if (read > 0) {
-        attr.etag = std::string(val, read);
-    }
-
-    read = openVFSfuse_getxattr(orig_path, "user.openvfs.fileid", val, size);
-    if (read > 0) {
-        attr.fileId = std::string(val, read);
-    }
-    read = openVFSfuse_getxattr(orig_path, "user.openvfs.fsize", val, size);
-    char *pEnd;
-    if (read <= 0) {
-        attr.fSize = 0;
-    } else {
-        attr.fSize = strtoul(val, &pEnd, 10);
-    }
-
-    read = openVFSfuse_getxattr(orig_path, "user.openvfs.action", val, size);
-    if (read > 0) {
-        attr.action = std::string(val, read);
-    }
-
-    read = openVFSfuse_getxattr(orig_path, "user.openvfs.state", val, size);
-    if (read > 0) {
-        attr.state = std::string(val, read);
-    }
-
-    read = openVFSfuse_getxattr(orig_path, "user.openvfs.pinstate", val, size);
-    if (read > 0) {
-        attr.pinState = std::string(val, read);
-    }
-    return attr;
-}
 
 static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_file_info *fi)
 {
-    int res;
-
     const auto path = getRelativePath(orig_path);
-    res = lstat(path.c_str(), stbuf);
-    // const auto attribs = get_placeholder_attribs(orig_path);
-    char val[255] = {};
-
-    // if (stbuf->st_size == 0) {    optimize later on
-    int read = openVFSfuse_getxattr(orig_path, "user.openvfs.fsize", val, 255);
-    char *pEnd{nullptr};
-    if (read >= 0) {
-        stbuf->st_size = strtoul(val, &pEnd, 10);
-    }
-
-    if (res == -1)
+    const auto res = lstat(path.c_str(), stbuf);
+    openvfsfuse_log(path, "getattr", res, "");
+    if (res == -1) {
         return -errno;
-
+    }
+    if (stbuf->st_size == 0) {
+        if (const auto size = OpenVfsAttr::get_file_size(path)) {
+            stbuf->st_size = static_cast<decltype(stbuf->st_size)>(size.value());
+        }
+    }
     return 0;
 }
 
@@ -586,7 +575,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
     s << OFlag(openFlags, fi->flags);
     openvfsfuse_log(path, "open", res, "open %s %s by %s", s.str().data(), path.c_str(), opener);
 
-    auto attribs = get_placeholder_attribs(orig_path);
+    auto attribs = OpenVfsAttr::get_placeholder_attribs(orig_path);
 
     if (!attribs.isOk()) {
         openvfsfuse_log(path, "open", 0, "Not a placeholder file");
@@ -602,7 +591,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         cout << "Desktop client wants to access file - bypassing" << endl;
     }
 
-    if (!desktopClient && attribs.state.compare("virtual") == 0) {
+    if (!desktopClient && attribs.state == "virtual") {
         // the file is virtual. It will be hydrated if the calling instance
         // is not on the ignore list
 
@@ -779,6 +768,7 @@ static int openVFSfuse_fsync(const char *orig_path, int isdatasync, struct fuse_
     (void)fi;
     openvfsfuse_log(path, "fsync", 0, "");
 
+    // TODO:: immplement
     return 0;
 }
 
@@ -800,26 +790,7 @@ static int openVFSfuse_setxattr(const char *orig_path, const char *name, const c
 static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *value, size_t size)
 {
     const auto path = getRelativePath(orig_path);
-
-    int res = lgetxattr(path.c_str(), name, value, size);
-
-    // dont log "attrib not available" as error
-    if (res > 0)
-        res = 0;
-    if (res < 0 && errno == ENODATA) {
-        res = 0;
-    }
-
-    openvfsfuse_log(path, "getxattr", res, "attrib name %s %s", name, errno == ENODATA ? "(attrib not found)" : "");
-
-    if (res == -1)
-        return -errno;
-
-    if (res < size) {
-        value[res] = 0;
-    }
-
-    return res;
+    return Xattr::getxattr(path, name, value, size);
 }
 
 static int openVFSfuse_listxattr(const char *orig_path, char *list, size_t size)
@@ -884,15 +855,13 @@ int initializeOpenVFSFuse(const std::string &_mountPoint, const std::vector<std:
     savefd = open(".", 0);
 
     // check ownership on the mountpoint
-    char value[255];
-    int res = openVFSfuse_getxattr("/", "user.openvfs.owner", value, 255);
-    if (res < 0) {
+    const auto owner = Xattr::CPP::getxattr(mountPoint, "user.openvfs.owner");
+    if (!owner) {
         std::cout << "Root directory does not have owner info" << std::endl;
         return -errno;
     }
-    const auto owner = std::string(value, res);
-    if (!owner.starts_with("opencloud")) {
-        std::cout << "Root directory has invalid owner info" << owner << std::endl;
+    if (!owner->starts_with("opencloud")) {
+        std::cout << "Root directory has invalid owner info: " << owner.value() << std::endl;
         return -errno;
     }
 
