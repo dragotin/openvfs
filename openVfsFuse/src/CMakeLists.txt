@@ -4,6 +4,7 @@ set (openVFS_SRC
 	openvfsfuse.cpp
 	socketthread.cpp
 	sharedmap.cpp
+	xattr.cpp
 )
 
 add_executable(openvfsfuse ${openVFS_SRC})
