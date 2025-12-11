@@ -32,7 +32,6 @@
 #include <fcntl.h>
 #include <fuse3/fuse.h>
 #include <stdio.h>
-#include <string.h>
 #include <sys/xattr.h>
 #include <unistd.h>
 
@@ -47,9 +46,11 @@
 
 #include <cstring>
 #include <sstream>
+#include <format>
 
 #include "flags.h"
 #include "openvfsfuse.h"
+
 #include "xattr.h"
 
 
@@ -62,6 +63,28 @@ std::string mountPoint;
 std::string getAbsolutePath(const char *path)
 {
     return mountPoint + path;
+}
+
+
+    /*
+     * Returns the name of the process which accessed the file system.
+     */
+std::string getcallername(fuse_context *context)
+{
+    const auto filename = std::format("/proc/{}/exe", context->pid);
+    string out;
+    ssize_t size;
+    do {
+        out.resize(out.size() + PATH_MAX);
+        size = readlink(filename.c_str(), const_cast<char *>(out.data()), out.size());
+    } while (out.size() == size);
+    if (size > 0) {
+        out.resize(size);
+    } else {
+        std::cerr << "Failed to locate process name for:" << context->pid << errno << std::endl;
+        exit(1);
+    }
+    return out;
 }
 
 }
@@ -114,61 +137,6 @@ openVFSPlaceHolderAttribs get_placeholder_attribs(const char *orig_path)
 
 }
 
-/* ========== Prototypes */
-
-static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value, size_t size, int flags);
-
-static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *value, size_t size);
-
-static void *openVFSfuse_init(struct fuse_conn_info *info, fuse_config *cfg);
-
-static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_file_info *fi);
-
-static int openVFSfuse_access(const char *orig_path, int mask);
-
-static int openVFSfuse_readlink(const char *orig_path, char *buf, size_t size);
-
-static int openVFSfuse_readdir(const char *orig_path, void *buf, fuse_fill_dir_t filler, off_t offset, fuse_file_info *fi, fuse_readdir_flags);
-static int openVFSfuse_mknod(const char *orig_path, mode_t mode, dev_t rdev);
-
-static int openVFSfuse_mkdir(const char *orig_path, mode_t mode);
-
-static int openVFSfuse_unlink(const char *orig_path);
-
-static int openVFSfuse_rmdir(const char *orig_path);
-
-static int openVFSfuse_symlink(const char *from, const char *orig_to);
-
-static int openVFSfuse_rename(const char *orig_from, const char *orig_to, unsigned int flags);
-
-static int openVFSfuse_link(const char *orig_from, const char *orig_to);
-
-static int openVFSfuse_chmod(const char *orig_path, mode_t mode, fuse_file_info *);
-
-static int openVFSfuse_chown(const char *orig_path, uid_t uid, gid_t gid, fuse_file_info *);
-
-static int openVFSfuse_truncate(const char *orig_path, off_t size, fuse_file_info *);
-
-static int openVFSfuse_utimens(const char *orig_path, const struct timespec ts[2], fuse_file_info *);
-
-static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi);
-
-static int openVFSfuse_read(const char *orig_path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi);
-
-static int openVFSfuse_write(const char *orig_path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi);
-
-static int openVFSfuse_statfs(const char *orig_path, struct statvfs *stbuf);
-
-static int openVFSfuse_release(const char *orig_path, struct fuse_file_info *fi);
-static int openVFSfuse_fsync(const char *orig_path, int isdatasync, struct fuse_file_info *fi);
-
-/* xattr operations are optional and can safely be left unimplemented */
-static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value, size_t size, int flags);
-
-static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *value, size_t size);
-static int openVFSfuse_listxattr(const char *orig_path, char *list, size_t size);
-
-static int openVFSfuse_removexattr(const char *orig_path, const char *name);
 
 static int savefd;
 
@@ -177,37 +145,6 @@ static SocketThread _socketThread("SocketThread", _jobs);
 
 static int _transfer_id{12};
 
-
-/* == Prototypes == */
-static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value, size_t size, int flags);
-
-static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *value, size_t size);
-
-static bool ends_with(const std::string &str, const char *suffix, unsigned suffixLen)
-{
-    return str.size() >= suffixLen && str.compare(str.size() - suffixLen, suffixLen, suffix, suffixLen) == 0;
-}
-/* - Prototypes end - */
-
-/*
- * Returns the name of the process which accessed the file system.
- */
-static char *getcallername(fuse_context *context)
-{
-    char filename[100];
-    sprintf(filename, "/proc/%d/cmdline", context->pid);
-    FILE *proc;
-    char cmdline[256] = "";
-
-    if ((proc = fopen(filename, "rt")) == NULL)
-        return NULL;
-    else {
-        fread(cmdline, sizeof(cmdline), 1, proc);
-        fclose(proc);
-    }
-
-    return strdup(cmdline);
-}
 
 void openvfsfuse_log(const std::string &path, const char *action, int returncode, const char *format, ...)
 {
@@ -598,7 +535,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         bool ok{true};
 
         // ignore list of apps that must not cause a hydration
-        if (ends_with(opener, "kioworker", 9) || ends_with(opener, "dolphin", 7)) {
+        if (opener.ends_with("kioworker") || opener.ends_with("dolphin")) {
             ok = false;
             openvfsfuse_log(path, "open", 0, "Blocking hydration for kio_worker");
             return -EPERM;
