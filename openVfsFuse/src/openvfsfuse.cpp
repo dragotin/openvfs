@@ -58,11 +58,11 @@ using json = nlohmann::json;
 using namespace std;
 
 namespace {
-std::string mountPoint;
+std::filesystem::path mountPoint;
 
-std::string getAbsolutePath(const char *path)
+auto getAbsolutePath(const char *path)
 {
-    return mountPoint + path;
+    return mountPoint / path;
 }
 
 
@@ -134,9 +134,6 @@ openVFSPlaceHolderAttribs get_placeholder_attribs(const char *orig_path)
 
 }
 
-
-static int savefd;
-
 static SharedMap _jobs;
 static SocketThread _socketThread("SocketThread", _jobs);
 
@@ -165,27 +162,8 @@ void openvfsfuse_log(const std::string &path, const char *action, int returncode
     free(buf);
 }
 
-static std::string getRelativePath(const char *path)
-{
-    std::string s(".");
-    s.append(path);
-
-    // Why is this happening? It's from the original code...
-    int res = fchdir(savefd);
-
-    // what is that for?
-    if (res < 0 && errno != EBADF) {
-        // FIXME proper log
-        printf("** ERROR fchdir: %d  - %d\n", savefd, errno);
-    }
-
-    return s;
-}
-
 static void *openVFSfuse_init(struct fuse_conn_info *info, fuse_config *cfg)
 {
-    fchdir(savefd);
-
     openvfsfuse_log("/path", "_init", 1, "**** INIT called");
 
     return NULL;
@@ -194,7 +172,7 @@ static void *openVFSfuse_init(struct fuse_conn_info *info, fuse_config *cfg)
 
 static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_file_info *fi)
 {
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
     const auto res = lstat(path.c_str(), stbuf);
     openvfsfuse_log(path, "getattr", res, "");
     if (res == -1) {
@@ -210,10 +188,8 @@ static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_f
 
 static int openVFSfuse_access(const char *orig_path, int mask)
 {
-    int res;
-
-    const auto path = getRelativePath(orig_path);
-    res = access(path.c_str(), mask);
+    const auto path = getAbsolutePath(orig_path);
+    const int res = access(path.c_str(), mask);
     openvfsfuse_log(path, "access", res, "");
     if (res == -1)
         return -errno;
@@ -223,10 +199,8 @@ static int openVFSfuse_access(const char *orig_path, int mask)
 
 static int openVFSfuse_readlink(const char *orig_path, char *buf, size_t size)
 {
-    int res;
-
-    const auto path = getRelativePath(orig_path);
-    res = readlink(path.c_str(), buf, size - 1);
+    const auto path = getAbsolutePath(orig_path);
+    const auto res = readlink(path.c_str(), buf, size - 1);
     openvfsfuse_log(path, "readlink", res, "readlink");
 
     if (res == -1)
@@ -246,7 +220,7 @@ static int openVFSfuse_readdir(const char *orig_path, void *buf, fuse_fill_dir_t
     (void)offset;
     (void)fi;
 
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
 
     dp = opendir(path.c_str());
     if (dp == NULL) {
@@ -275,7 +249,7 @@ static int openVFSfuse_readdir(const char *orig_path, void *buf, fuse_fill_dir_t
 static int openVFSfuse_mknod(const char *orig_path, mode_t mode, dev_t rdev)
 {
     int res;
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
 
     if (S_ISREG(mode)) {
         res = open(path.c_str(), O_CREAT | O_EXCL | O_WRONLY, mode);
@@ -312,7 +286,7 @@ static int openVFSfuse_mknod(const char *orig_path, mode_t mode, dev_t rdev)
 static int openVFSfuse_mkdir(const char *orig_path, mode_t mode)
 {
     int res;
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
     res = mkdir(path.c_str(), mode);
     openvfsfuse_log(path, "mkdir", res, "mkdir mode %o", mode);
 
@@ -327,7 +301,7 @@ static int openVFSfuse_mkdir(const char *orig_path, mode_t mode)
 static int openVFSfuse_unlink(const char *orig_path)
 {
     int res;
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
     res = unlink(path.c_str());
     openvfsfuse_log(path, "unlink", res, "");
 
@@ -340,7 +314,7 @@ static int openVFSfuse_unlink(const char *orig_path)
 static int openVFSfuse_rmdir(const char *orig_path)
 {
     int res;
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
     res = rmdir(path.c_str());
     openvfsfuse_log(path, "rmdir", res, "");
 
@@ -353,7 +327,7 @@ static int openVFSfuse_symlink(const char *from, const char *orig_to)
 {
     int res;
 
-    const auto to = getRelativePath(orig_to);
+    const auto to = getAbsolutePath(orig_to);
 
     res = symlink(from, to.c_str());
 
@@ -371,8 +345,8 @@ static int openVFSfuse_symlink(const char *from, const char *orig_to)
 static int openVFSfuse_rename(const char *orig_from, const char *orig_to, unsigned int flags)
 {
     int res;
-    const auto from = getRelativePath(orig_from);
-    const auto to = getRelativePath(orig_to);
+    const auto from = getAbsolutePath(orig_from);
+    const auto to = getAbsolutePath(orig_to);
     res = rename(from.c_str(), to.c_str());
     openvfsfuse_log(from, "rename", res, "rename %s to %s", from.c_str(), to.c_str());
 
@@ -386,8 +360,8 @@ static int openVFSfuse_link(const char *orig_from, const char *orig_to)
 {
     int res;
 
-    const auto from = getRelativePath(orig_from);
-    const auto to = getRelativePath(orig_to);
+    const auto from = getAbsolutePath(orig_from);
+    const auto to = getAbsolutePath(orig_to);
 
     res = link(from.c_str(), to.c_str());
     openvfsfuse_log(to, "link", res, "hard link from %s to %s", from.c_str(), to.c_str());
@@ -404,7 +378,7 @@ static int openVFSfuse_link(const char *orig_from, const char *orig_to)
 static int openVFSfuse_chmod(const char *orig_path, mode_t mode, fuse_file_info *)
 {
     int res;
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
     res = chmod(path.c_str(), mode);
     openvfsfuse_log(path, "chmod", res, "chmod to %o", mode);
 
@@ -434,7 +408,7 @@ static char *getgroupname(gid_t gid)
 static int openVFSfuse_chown(const char *orig_path, uid_t uid, gid_t gid, fuse_file_info *)
 {
     int res;
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
     res = lchown(path.c_str(), uid, gid) == -1 ? -errno : 0;
 
     char *username = getusername(uid);
@@ -452,7 +426,7 @@ static int openVFSfuse_truncate(const char *orig_path, off_t size, fuse_file_inf
 {
     int res;
 
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
     res = truncate(path.c_str(), size);
     openvfsfuse_log(path, "truncate", res, "truncate to %d bytes", size);
 
@@ -466,7 +440,7 @@ static int openVFSfuse_truncate(const char *orig_path, off_t size, fuse_file_inf
 static int openVFSfuse_utimens(const char *orig_path, const struct timespec ts[2], fuse_file_info *)
 {
     int res;
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
 
     res = utimensat(AT_FDCWD, path.c_str(), ts, AT_SYMLINK_NOFOLLOW);
 
@@ -482,7 +456,7 @@ static int openVFSfuse_utimens(const char *orig_path, const struct timespec ts[2
 static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 {
     int res{0};
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
 
     const auto opener = getcallername(fuse_get_context());
     static auto openFlags = [] {
@@ -625,7 +599,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 static int openVFSfuse_read(const char *orig_path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
     int res;
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
 
     openvfsfuse_log(path, "read", 0, "read %d bytes at offset %d", size, offset);
     res = pread(fi->fh, buf, size, offset);
@@ -643,7 +617,7 @@ static int openVFSfuse_write(const char *orig_path, const char *buf, size_t size
 {
     int fd;
     int res;
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
     (void)fi;
 
     fd = open(path.c_str(), O_WRONLY);
@@ -672,7 +646,7 @@ static int openVFSfuse_write(const char *orig_path, const char *buf, size_t size
 static int openVFSfuse_statfs(const char *orig_path, struct statvfs *stbuf)
 {
     int res;
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
     res = statvfs(path.c_str(), stbuf);
     openvfsfuse_log(path, "statfs", res, "");
 
@@ -685,7 +659,7 @@ static int openVFSfuse_statfs(const char *orig_path, struct statvfs *stbuf)
 static int openVFSfuse_release(const char *orig_path, struct fuse_file_info *fi)
 {
     (void)orig_path;
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
 
     openvfsfuse_log(path, "close", 0, "");
 
@@ -695,7 +669,7 @@ static int openVFSfuse_release(const char *orig_path, struct fuse_file_info *fi)
 
 static int openVFSfuse_fsync(const char *orig_path, int isdatasync, struct fuse_file_info *fi)
 {
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
 
     (void)orig_path;
     (void)isdatasync;
@@ -709,7 +683,7 @@ static int openVFSfuse_fsync(const char *orig_path, int isdatasync, struct fuse_
 /* xattr operations are optional and can safely be left unimplemented */
 static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value, size_t size, int flags)
 {
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
 
     int res;
     res = lsetxattr(path.c_str(), name, value, size, flags);
@@ -723,13 +697,13 @@ static int openVFSfuse_setxattr(const char *orig_path, const char *name, const c
 
 static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *value, size_t size)
 {
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
     return Xattr::getxattr(path, name, value, size);
 }
 
 static int openVFSfuse_listxattr(const char *orig_path, char *list, size_t size)
 {
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
     int res = llistxattr(path.c_str(), list, size);
     openvfsfuse_log(path, "listxattr", res, "");
 
@@ -740,7 +714,7 @@ static int openVFSfuse_listxattr(const char *orig_path, char *list, size_t size)
 
 static int openVFSfuse_removexattr(const char *orig_path, const char *name)
 {
-    const auto path = getRelativePath(orig_path);
+    const auto path = getAbsolutePath(orig_path);
 
     int res = lremovexattr(path.c_str(), name);
     openvfsfuse_log(path, "removexattr", 0, "remove %s", name);
@@ -750,7 +724,7 @@ static int openVFSfuse_removexattr(const char *orig_path, const char *name)
     return 0;
 }
 
-int initializeOpenVFSFuse(const std::string &_mountPoint, const std::vector<std::string> &fuseArgs)
+int initializeOpenVFSFuse(const std::filesystem::path &_mountPoint, const std::vector<std::string> &fuseArgs)
 {
     mountPoint = _mountPoint;
 
@@ -782,11 +756,6 @@ int initializeOpenVFSFuse(const std::string &_mountPoint, const std::vector<std:
     openVFSfuse_oper.getxattr = openVFSfuse_getxattr;
     openVFSfuse_oper.listxattr = openVFSfuse_listxattr;
     openVFSfuse_oper.removexattr = openVFSfuse_removexattr;
-
-
-    std::cout << "chdir to" << mountPoint << std::endl;
-    chdir(mountPoint.c_str());
-    savefd = open(".", 0);
 
     // check ownership on the mountpoint
     const auto owner = Xattr::CPP::getxattr(mountPoint, "user.openvfs.owner");

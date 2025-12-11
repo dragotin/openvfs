@@ -30,7 +30,7 @@ std::string fuseStandardArgs = "attr_timeout=0,entry_timeout=0,negative_timeout=
 
 struct openVFSfuse_Args
 {
-    std::string mountPoint; // where the users read files
+    std::filesystem::path mountPoint; // where the users read files
     bool isDaemon = true; // true == spawn in background
     std::vector<std::string> fuseArgv;
 };
@@ -110,7 +110,7 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
         }
     }
 
-    if (!std::filesystem::path(out.mountPoint).is_absolute()) {
+    if (!out.mountPoint.is_absolute()) {
         std::cerr << "You must use absolute paths (beginning with '/') for " << out.mountPoint << std::endl;
         return {};
     }
