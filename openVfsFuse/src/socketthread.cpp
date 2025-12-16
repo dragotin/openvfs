@@ -138,7 +138,7 @@ bool SocketThread::socketSendMsg(std::shared_ptr<MsgData> msgData)
     msg += j.dump();
     msg += '\n';
 
-    cout << "Raw message: " << msg.c_str() << endl;
+    cout << "Raw message: " << msg << endl;
     // send message
     unsigned long int value;
 
@@ -149,6 +149,7 @@ bool SocketThread::socketSendMsg(std::shared_ptr<MsgData> msgData)
         return false;
     }
 
+    std::cout << "Sent message: " << msg << std::endl;
     return true;
     // openvfsfuse_log(socket_path.c_str(), "socket send", value, "Message: %s", msg.c_str());
 }
@@ -160,8 +161,7 @@ std::string SocketThread::readSocket()
     ssize_t n = read(_socket, buf, sizeof(buf) - 1);
     if (n <= 0)
         return std::string();
-    buf[n] = '\0';
-    return std::string(buf);
+    return std::string(buf, n);
 }
 
 // Custom implementation of string split, which is not available in std::
@@ -248,7 +248,7 @@ void SocketThread::handleReceivedMsg(const std::string &rawmsg)
 //----------------------------------------------------------------------------
 std::thread::id SocketThread::GetThreadId()
 {
-    assert(m_thread != nullptr);
+    assert(m_thread);
     return m_thread->get_id();
 }
 
@@ -380,10 +380,13 @@ void SocketThread::Process()
         // not the transfer id of the client job
         switch (msg->id) {
         case MSG_POST_USER_DATA: {
-            assert(msg->msg != NULL);
+            if (msg->msg) {
+                std::cout << "Received user data message" << std::endl;
+            }
+            assert(msg->msg);
 
             auto msgData = std::static_pointer_cast<MsgData>(msg->msg);
-            cout << "Sending " << msgData->id << ": " << msgData->msg.c_str() << " " << msgData->file << " on " << THREAD_NAME << endl;
+            cout << "Sending " << msgData->id << ": " << msgData->msg << " " << msgData->file << " on " << THREAD_NAME << endl;
 
             if (!socketSendMsg(msgData)) {
                 cout << "Failed to send msg " << msgData->id << ": " << msgData->msg.c_str() << endl;
@@ -420,4 +423,5 @@ void SocketThread::Process()
             assert(false);
         }
     }
+    std::cout << "SocketThread exiting" << std::endl;
 }
