@@ -39,7 +39,7 @@ struct MsgData
     std::string msg;
     std::string file;
     std::string fileId;
-    int id;
+    int id = 0;
     std::string requester;
 };
 
