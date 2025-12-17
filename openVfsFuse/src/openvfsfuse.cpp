@@ -77,17 +77,25 @@ public:
      * To trick fuse and prevent it fromm intercepting our calls to the underlying file system,
      * we chdir to the root and use relative paths internally.
      */
-    auto getInternalPath(const std::string &path)
+    std::filesystem::path getInternalPath(const std::filesystem::path &path)
     {
-        if (fchdir(_rootHandle) == -1)
-        {
+        if (fchdir(_rootHandle) == -1) {
             std::cerr << "Failed to chdir to root: " << strerror(errno) << std::endl;
             abort();
         }
-        return "." + path;
+        return "." + path.native();
     }
 
-    auto getExternalPath(const std::string &path) { return std::filesystem::path(_mountPoint.string() + path); }
+    std::filesystem::path getExternalPath(const std::filesystem::path &path)
+    {
+        // ./foo
+        if (path.is_relative()) {
+            return _mountPoint / path;
+        } else {
+            // original_path /foo
+            return _mountPoint.native() + path.native();
+        }
+    }
 
     auto mountPoint() const { return _mountPoint; }
 
@@ -115,20 +123,12 @@ std::string getcallername(fuse_context *context)
     {
         return "pid: 0";
     }
-    const auto filename = std::format("/proc/{}/exe", context->pid);
-    string out;
-    ssize_t size;
-    do {
-        out.resize(out.size() + PATH_MAX);
-        size = readlink(filename.c_str(), const_cast<char *>(out.data()), out.size());
-    } while (out.size() == size);
-    if (size > 0) {
-        out.resize(size);
-    } else {
-        std::cerr << "Failed to locate process name for:" << context->pid << errno << std::endl;
+    try {
+        return std::filesystem::read_symlink(std::filesystem::path(std::format("/proc/{}/exe", context->pid)));
+    } catch (std::filesystem::filesystem_error const &ex) {
+        std::cerr << "Failed to locate process name for: " << context->pid << " error: " << ex.what() << std::endl;
         return "unknown: pid: " + std::to_string(context->pid);
     }
-    return out;
 }
 
 }
@@ -163,19 +163,20 @@ std::optional<std::size_t> get_file_size(const std::string &path)
 }
 
 
-openVFSPlaceHolderAttribs get_placeholder_attribs(const char *orig_path)
+openVFSPlaceHolderAttribs get_placeholder_attribs(const std::filesystem::path &internalPath)
 {
+    // ensure we get an internal path ./foo
+    assert(internalPath.is_relative());
     openVFSPlaceHolderAttribs attr{};
 
-    attr.absolutePath = VFSFuseContext::instance().getExternalPath(orig_path);
+    attr.absolutePath = VFSFuseContext::instance().getExternalPath(internalPath);
 
-    attr.etag = Xattr::CPP::getxattr(orig_path, "user.openvfs.etag").value_or({});
-    attr.fileId = Xattr::CPP::getxattr(orig_path, "user.openvfs.fileid").value_or({});
-    attr.fSize = get_file_size(orig_path).value_or(0);
-    attr.action = Xattr::CPP::getxattr(orig_path, "user.openvfs.action").value_or({});
-    attr.state = Xattr::CPP::getxattr(orig_path, "user.openvfs.state").value_or({});
-    attr.pinState = Xattr::CPP::getxattr(orig_path, "user.openvfs.pinstate").value_or({});
-
+    attr.etag = Xattr::CPP::getxattr(internalPath, "user.openvfs.etag").value_or("");
+    attr.fileId = Xattr::CPP::getxattr(internalPath, "user.openvfs.fileid").value_or("");
+    attr.fSize = get_file_size(internalPath).value_or(0);
+    attr.action = Xattr::CPP::getxattr(internalPath, "user.openvfs.action").value_or("");
+    attr.state = Xattr::CPP::getxattr(internalPath, "user.openvfs.state").value_or("");
+    attr.pinState = Xattr::CPP::getxattr(internalPath, "user.openvfs.pinstate").value_or("");
     return attr;
 }
 
@@ -201,7 +202,7 @@ void openvfsfuse_log(const std::string &path, const char *action, int returncode
 
     auto context = fuse_get_context();
     if (context) {
-        std::cout << path << " [ pid = " << context->pid << " " << getcallername(context) << " uuid = " << context->uid << " ]" << buf
+        std::cout << path << " [ pid = " << context->pid << " " << getcallername(context) << " uuid = " << context->uid << " ] " << buf << " "
                   << (returncode >= 0 ? "SUCCESS" : "FAILURE") << std::endl;
     } else {
         std::cout << path << " [ openvfsfuse ]" << buf << (returncode >= 0 ? "SUCCESS" : "FAILURE") << std::endl;
@@ -507,7 +508,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 
     const auto opener = getcallername(fuse_get_context());
     static auto openFlags = [] {
-        auto f = OFlags<typeof(fi->flags)>("OpenFlags");
+        auto f = OFlags<decltype(fi->flags)>("OpenFlags");
         ADD_O_FLAG(f, O_RDONLY);
         ADD_O_FLAG(f, O_WRONLY);
         ADD_O_FLAG(f, O_RDWR);
@@ -517,7 +518,9 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         ADD_O_FLAG(f, O_EXCL);
         ADD_O_FLAG(f, O_NOCTTY);
         ADD_O_FLAG(f, O_NOFOLLOW);
+#ifdef O_TMPFILE
         ADD_O_FLAG(f, O_TMPFILE);
+#endif
         ADD_O_FLAG(f, O_APPEND);
         ADD_O_FLAG(f, O_TRUNC);
         f.names[0100000] = "O_LARGEFILE";
@@ -528,9 +531,9 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 
     stringstream s;
     s << OFlag(openFlags, fi->flags);
-    openvfsfuse_log(path, "open", res, "open %s %s by %s", s.str().data(), path.c_str(), opener);
+    openvfsfuse_log(path, "open", res, "open %s %s by %s", s.str().data(), path.c_str(), opener.c_str());
 
-    auto attribs = OpenVfsAttr::get_placeholder_attribs(orig_path);
+    auto attribs = OpenVfsAttr::get_placeholder_attribs(path);
 
     if (!attribs.isOk()) {
         openvfsfuse_log(path, "open", 0, "Not a placeholder file");
@@ -694,7 +697,7 @@ static int openVFSfuse_statfs(const char *orig_path, struct statvfs *stbuf)
 {
     int res;
     const auto path = getInternalPath(orig_path);
-    res = statvfs(path.data(), stbuf);
+    res = statvfs(path.c_str(), stbuf);
     openvfsfuse_log(path, "statfs", res, "");
 
     if (res == -1)
@@ -731,15 +734,7 @@ static int openVFSfuse_fsync(const char *orig_path, int isdatasync, struct fuse_
 static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value, size_t size, int flags)
 {
     const auto path = getInternalPath(orig_path);
-
-    int res;
-    res = lsetxattr(path.c_str(), name, value, size, flags);
-    openvfsfuse_log(path, "setxattr", res, "%s = %s", name, std::string(value, size).data());
-
-
-    if (res == -1)
-        return -errno;
-    return 0;
+    return Xattr::setxattr(path, name, value, size, flags);
 }
 
 static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *value, size_t size)
@@ -751,24 +746,13 @@ static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *v
 static int openVFSfuse_listxattr(const char *orig_path, char *list, size_t size)
 {
     const auto path = getInternalPath(orig_path);
-    int res = llistxattr(path.c_str(), list, size);
-    openvfsfuse_log(path, "listxattr", res, "");
-
-    if (res == -1)
-        return -errno;
-    return res;
+    return Xattr::listxattr(path, list, size);
 }
 
 static int openVFSfuse_removexattr(const char *orig_path, const char *name)
 {
     const auto path = getInternalPath(orig_path);
-
-    int res = lremovexattr(path.c_str(), name);
-    openvfsfuse_log(path, "removexattr", 0, "remove %s", name);
-
-    if (res == -1)
-        return -errno;
-    return 0;
+    return Xattr::removexattr(path, name);
 }
 
 int initializeOpenVFSFuse(const std::filesystem::path &_mountPoint, const std::vector<std::string> &fuseArgs)

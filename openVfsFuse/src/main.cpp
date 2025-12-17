@@ -38,7 +38,7 @@ struct openVFSfuse_Args
 void usage(char *name)
 {
     std::cerr << "Usage:" << std::endl //
-              << name << " [-h] | [-f] [-p] [-e] /directory-mountpoint" << std::endl //
+              << name << " [-h] | [-f] [-p] [-d] /directory-mountpoint" << std::endl //
               << "Type 'man openvfsfuse' for more details" << std::endl;
 }
 
@@ -53,7 +53,7 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
 
     bool got_p = false;
 
-    while ((res = getopt(argc, argv, "hpfe:")) != -1) {
+    while ((res = getopt(argc, argv, "hpfd")) != -1) {
         switch (res) {
         case 'h':
             usage(argv[0]);
@@ -69,6 +69,11 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
             out.fuseArgv.emplace_back("allow_other,default_permissions," + fuseStandardArgs);
             got_p = true;
             std::cout << "openVFSfuse running as a public filesystem" << std::endl;
+            break;
+        case 'd':
+            // enable debug logging, implies -f
+            out.fuseArgv.emplace_back("-d");
+            std::cout << "openVFSfuse running with debug log enabled" << std::endl;
             break;
         default:
             assert(false);
