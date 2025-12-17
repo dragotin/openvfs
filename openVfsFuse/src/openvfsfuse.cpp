@@ -189,13 +189,12 @@ openVFSPlaceHolderAttribs get_placeholder_attribs(const std::filesystem::path &i
 
     attr.absolutePath = VFSFuseContext::instance().getExternalPath(internalPath);
 
-    attr.etag = Xattr::CPP::getxattr(internalPath, "user.openvfs.etag").value_or({});
-    attr.fileId = Xattr::CPP::getxattr(internalPath, "user.openvfs.fileid").value_or({});
+    attr.etag = Xattr::CPP::getxattr(internalPath, "user.openvfs.etag").value_or("");
+    attr.fileId = Xattr::CPP::getxattr(internalPath, "user.openvfs.fileid").value_or("");
     attr.fSize = get_file_size(internalPath).value_or(0);
-    attr.action = Xattr::CPP::getxattr(internalPath, "user.openvfs.action").value_or({});
-    attr.state = Xattr::CPP::getxattr(internalPath, "user.openvfs.state").value_or({});
-    attr.pinState = Xattr::CPP::getxattr(internalPath, "user.openvfs.pinstate").value_or({});
-
+    attr.action = Xattr::CPP::getxattr(internalPath, "user.openvfs.action").value_or("");
+    attr.state = Xattr::CPP::getxattr(internalPath, "user.openvfs.state").value_or("");
+    attr.pinState = Xattr::CPP::getxattr(internalPath, "user.openvfs.pinstate").value_or("");
     return attr;
 }
 
@@ -530,7 +529,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 
     const auto opener = getcallername(fuse_get_context());
     static auto openFlags = [] {
-        auto f = OFlags<typeof(fi->flags)>("OpenFlags");
+        auto f = OFlags<decltype(fi->flags)>("OpenFlags");
         ADD_O_FLAG(f, O_RDONLY);
         ADD_O_FLAG(f, O_WRONLY);
         ADD_O_FLAG(f, O_RDWR);
@@ -540,7 +539,9 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         ADD_O_FLAG(f, O_EXCL);
         ADD_O_FLAG(f, O_NOCTTY);
         ADD_O_FLAG(f, O_NOFOLLOW);
+#ifdef O_TMPFILE
         ADD_O_FLAG(f, O_TMPFILE);
+#endif
         ADD_O_FLAG(f, O_APPEND);
         ADD_O_FLAG(f, O_TRUNC);
         f.names[0100000] = "O_LARGEFILE";
@@ -755,15 +756,7 @@ static int openVFSfuse_fsync(const char *orig_path, int isdatasync, struct fuse_
 static int openVFSfuse_setxattr(const char *orig_path, const char *name, const char *value, size_t size, int flags)
 {
     const auto path = getInternalPath(orig_path);
-
-    int res;
-    res = lsetxattr(path.c_str(), name, value, size, flags);
-    openvfsfuse_log(path, "setxattr", res, "%s = %s", name, std::string(value, size).data());
-
-
-    if (res == -1)
-        return -errno;
-    return 0;
+    return Xattr::setxattr(path, name, value, size, flags);
 }
 
 static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *value, size_t size)
@@ -775,24 +768,13 @@ static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *v
 static int openVFSfuse_listxattr(const char *orig_path, char *list, size_t size)
 {
     const auto path = getInternalPath(orig_path);
-    int res = llistxattr(path.c_str(), list, size);
-    openvfsfuse_log(path, "listxattr", res, "");
-
-    if (res == -1)
-        return -errno;
-    return res;
+    return Xattr::listxattr(path, list, size);
 }
 
 static int openVFSfuse_removexattr(const char *orig_path, const char *name)
 {
     const auto path = getInternalPath(orig_path);
-
-    int res = lremovexattr(path.c_str(), name);
-    openvfsfuse_log(path, "removexattr", 0, "remove %s", name);
-
-    if (res == -1)
-        return -errno;
-    return 0;
+    return Xattr::removexattr(path, name);
 }
 
 int initializeOpenVFSFuse(openVFSfuse_Args& openVFSArgs)
