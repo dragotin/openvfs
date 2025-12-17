@@ -79,7 +79,11 @@ public:
      */
     auto getInternalPath(const std::string &path)
     {
-        fchdir(_rootHandle);
+        if (fchdir(_rootHandle) == -1)
+        {
+            std::cerr << "Failed to chdir to root: " << strerror(errno) << std::endl;
+            abort();
+        }
         return "." + path;
     }
 
