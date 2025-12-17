@@ -18,7 +18,7 @@ find_path(FUSE_INCLUDE_DIR
   HINTS ${FUSE_ROOT} ${PC_fuse_INCLUDEDIR} ${PC_fuse_INCLUDE_DIRS}
   PATH_SUFFIXES include include/osxfuse)
 
-if(MacOSX)
+if(APPLE)
   find_library(FUSE_LIBRARY
     NAMES osxfuse
     HINTS ${FUSE_ROOT} ${PC_fuse_LIBDIR} ${PC_fuse_LIBRARY_DIRS}
