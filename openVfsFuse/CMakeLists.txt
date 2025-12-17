@@ -5,6 +5,9 @@ project(openVfsFuse LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CMAKE_OSX_DEPLOYMENT_TARGET 13.3)
+set(APPLE_SUPPRESS_X11_WARNING ON)
+
 include(FeatureSummary)
 feature_summary(WHAT REQUIRED_PACKAGES_NOT_FOUND FATAL_ON_MISSING_REQUIRED_PACKAGES)
 
@@ -13,10 +16,13 @@ set_package_properties(ECM PROPERTIES TYPE REQUIRED DESCRIPTION "Extra CMake Mod
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ ${ECM_MODULE_PATH} ${CMAKE_MODULE_PATH})
 
 include(KDEInstallDirs)
-include(KDECMakeSettings)
-
+include(KDECMakeSettings NO_POLICY_SCOPE)
 include(KDECompilerSettings NO_POLICY_SCOPE)
 include(KDEGitCommitHooks)
+
+# we don't use Qt
+set(CMAKE_AUTOMOC OFF)
+set(CMAKE_AUTORCC OFF)
 
 # Qt does not support exceptions therefor KDE disables them by default
 kde_enable_exceptions()
