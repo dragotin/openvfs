@@ -21,7 +21,7 @@ int Xattr::getxattr(const std::filesystem::path &path, const char *name, char *v
 
     } else {
         // use string view to ensure termination at size
-        openvfsfuse_log(path, "getxattr", res, std::format("attrib {}: {}", name, std::string_view(value, std::max<ssize_t>(0, res))).c_str());
+        openvfsfuse_log(path, "getxattr", res, std::format("attrib {}: {}", name, value ? std::string_view(value, std::max<ssize_t>(0, res)) : "null").c_str());
     }
 
     if (res < 0) {
