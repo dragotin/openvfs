@@ -205,7 +205,6 @@ void openvfsfuse_log(const std::string &path, const char *action, int returncode
     const auto successCode = returncode >= 0 ? " ✓" : " ❌";
 
     if (context) {
-
         std::cout << " [pid = " << context->pid << " " << getcallername(context) << " uuid = " << context->uid << "] "
                   << action << " " << buf << " " << path << successCode << std::endl;
     } else {
@@ -548,7 +547,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 
     const bool desktopClient = (callerPid == desktopClientPid);
     if (desktopClient) {
-        cout << "Desktop client wants to access file - bypassing" << endl;
+        openvfsfuse_log(path, "open", res, "Desktop client tries to access, bypassing!");
     }
 
     if (!desktopClient && attribs.state == "virtual") {
@@ -781,11 +780,11 @@ int initializeOpenVFSFuse(const std::filesystem::path &_mountPoint, const std::v
     const auto contextInstance = std::make_unique<VFSFuseContext>(_mountPoint);
     const auto owner = Xattr::CPP::getxattr(contextInstance->mountPoint(), "user.openvfs.owner");
     if (!owner) {
-        std::cout << "Root directory does not have owner info" << std::endl;
+        std::cerr << "Root directory does not have owner info" << std::endl;
         return -errno;
     }
     if (!owner->starts_with("opencloud")) {
-        std::cout << "Root directory owned by different openVFS provider " << owner.value() << std::endl;
+        std::cerr << "Root directory owned by different openVFS provider " << owner.value() << std::endl;
         return -errno;
     }
 
