@@ -74,7 +74,7 @@ public:
 
     /***
      * We are an overlay file system, using the same path internally and externally.
-     * To trick fuse and prevent it fromm intercepting our calls to the underlying file system,
+     * To trick fuse and prevent it from intercepting our calls to the underlying file system,
      * we chdir to the root and use relative paths internally.
      */
     std::filesystem::path getInternalPath(const std::filesystem::path &path)
@@ -202,11 +202,14 @@ void openvfsfuse_log(const std::string &path, const char *action, int returncode
     va_end(args);
 
     auto context = fuse_get_context();
+    const auto successCode = returncode >= 0 ? " ✓" : " ❌";
+
     if (context) {
-        std::cout << path << " [ pid = " << context->pid << " " << getcallername(context) << " uuid = " << context->uid << " ] " << buf << " "
-                  << (returncode >= 0 ? "SUCCESS" : "FAILURE") << std::endl;
+
+        std::cout << " [pid = " << context->pid << " " << getcallername(context) << " uuid = " << context->uid << "] "
+                  << action << " " << buf << " " << path << successCode << std::endl;
     } else {
-        std::cout << path << " [ openvfsfuse ]" << buf << (returncode >= 0 ? "SUCCESS" : "FAILURE") << std::endl;
+        std::cout << path << " [ openvfsfuse ]" << buf << successCode << std::endl;
     }
     free(buf);
 }
