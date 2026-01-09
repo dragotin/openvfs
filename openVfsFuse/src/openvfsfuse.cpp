@@ -554,86 +554,86 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         // the file is virtual. It will be hydrated if the calling instance
         // is not on the ignore list
 
-        bool ok{true};
-
         // ignore list of apps that must not cause a hydration
         if (opener.ends_with("kioworker") || opener.ends_with("dolphin")) {
-            ok = false;
             openvfsfuse_log(path, "open", 0, "Blocking hydration for kio_worker");
             return -EPERM;
         }
 
-        // check if the desktop client calls in
-        ok = ok && (callerPid != desktopClientPid);
+        ++_transfer_id;
 
-        if (ok) {
-            ++_transfer_id;
-            // Create message to send to worker thread 1
-            std::shared_ptr<MsgData> msgData(new MsgData());
-            msgData->msg = "V2/HYDRATE_FILE";
-            msgData->file = attribs.absolutePath;
-            msgData->fileId = attribs.fileId;
-            msgData->requester = getcallername(fuse_get_context());
-            msgData->id = _transfer_id; // attention: _transfer_id is global and can change!
+        // Create message to send to worker thread 1
+        std::shared_ptr<MsgData> msgData(new MsgData());
+        msgData->msg = "V2/HYDRATE_FILE";
+        msgData->file = attribs.absolutePath;
+        msgData->fileId = attribs.fileId;
+        msgData->requester = getcallername(fuse_get_context());
+        msgData->id = _transfer_id; // attention: _transfer_id is global and can change!
 
-            _socketThread.PostMsg(msgData); // push hydration request to msg thread
+        // push hydration request to the thread that handles the communication to the client
+        _socketThread.PostMsg(msgData);
 
-            // Now Loop in this thread until the shared map of running jobs does not
-            // longer contain the transfer_id
-            int cnt{0};
-            int state{1};
-            const auto MaxCnt{500};
-            std::chrono::duration waitTime{20ms};
-            std::chrono::duration dur{30ms};
+        // the socketThread now talks to the client, which downloads the file for us.
+        // Here in this thread we enter a loop and wait for results
+        int cnt{0};
+        int state{1};
+        const auto MaxCnt{50};
+        std::chrono::duration waitTime{10ms};
+        std::chrono::duration dur{30ms};
 
-            while (state == 1 && cnt++ < MaxCnt) {
-                this_thread::sleep_for(waitTime); // sleep for some time
-                waitTime += dur;
-                dur += waitTime;
+        HydJob hj;
 
-                // check shared map and see if the id has changed to 0, which means success
-                // the value is changed in the other thread and fetched here
-                HydJob hj;
+        while (state == 1 && cnt++ < MaxCnt) {
+            this_thread::sleep_for(waitTime); // sleep for some time
+            waitTime += dur;
+            dur += waitTime;
+            // first: waittime: 10ms, dur: 30ms
+            // second:waittime: 40ms, dur: 70ms
+            // third: waittime: 110ms, dur: 180ms
+            // forth: waittime: 290ms, dur: 470ms
+            // fifth: waittime: 760ms, dur: 1230ms
 
-                if (!_jobs.get(msgData->id, hj)) {
-                    // The job is no longer there :-/
-                    openvfsfuse_log(path, "open", 1, "Job queue does not have job %d", msgData->id);
-                    state = -1;
-                } else {
-                    state = hj.state;
-                    openvfsfuse_log(path, "open", 1, "Found in job queue %d", state);
+            // check shared map and see if the id has changed to 0, which means success
+            // the value is changed in the other thread and fetched here
 
-                    // With all the state values except 1, the loop is left
-                    if (state == 0) {
-                        // success!
-                        openvfsfuse_log(path, "open", 1, "Sucessfully finished job %d", msgData->id);
-                    } else if (state == 1) {
-                        // still running
-                    } else if (state == -1) {
-                        // fail
-                        openvfsfuse_log(path, "open", 0, "Failed job %d", msgData->id);
-                    } else if (state == 2) {
-                        // timeout
-                        openvfsfuse_log(path, "open", 0, "Job %d timed out", msgData->id);
-                    }
+            if (!_jobs.get(msgData->id, hj)) {
+                // The job is no longer there :-/
+                openvfsfuse_log(path, "open", 1, "Job queue does not have job %d", msgData->id);
+                state = -1;
+            } else {
+                state = hj.state;
+                openvfsfuse_log(path, "open", 1, "Found in job queue %d", state);
+
+                // With all the state values except 1, the loop is left
+                if (state == 0) {
+                    // success!
+                    openvfsfuse_log(path, "open", 1, "Sucessfully finished job %d", msgData->id);
+                } else if (state == 1) {
+                    // still running
+                } else if (state == -1) {
+                    // fail
+                    openvfsfuse_log(path, "open", 0, "Failed job %d", msgData->id);
+                } else if (state == 2) {
+                    // timeout
+                    openvfsfuse_log(path, "open", 0, "Job %d timed out", msgData->id);
                 }
             }
-
-
-            // remove the job regardless of the result
-            _jobs.remove(msgData->id);
-
-            if (state == -1 || state == 2) {
-                // Fail, job with ID was errornous
-                openvfsfuse_log(path, "open", 1, "ERROR while retrieving: %d", state);
-                return -ENOENT;
-            }
-
-            if (cnt >= MaxCnt) {
-                openvfsfuse_log(path, "open", MaxCnt, "TIMEOUT - no answer from client");
-                return -ENOENT;
-            }
         }
+
+        // remove the job regardless of the result
+        _jobs.remove(msgData->id);
+
+        if (state == -1 || state == 2) {
+            // Fail, job with ID was errornous
+            openvfsfuse_log(path, "open", 1, "ERROR while retrieving: %d", state);
+            return -ENOENT;
+        }
+
+        if (cnt >= MaxCnt) {
+            openvfsfuse_log(path, "open", MaxCnt, "TIMEOUT - no answer from client");
+            return -ENOENT;
+        }
+
         openvfsfuse_log(path, "open", 0, "-- open finished");
     }
 
