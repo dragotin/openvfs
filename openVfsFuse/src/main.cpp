@@ -2,6 +2,9 @@
 #include <filesystem>
 
 #include "openvfsfuse.h"
+#include "strtools.h"
+
+#include <inicpp.h>
 
 #include <getopt.h>
 #include <iostream>
@@ -28,13 +31,6 @@ constexpr int MaxFuseArgs = 32;
 
 std::string fuseStandardArgs = "attr_timeout=0,entry_timeout=0,negative_timeout=0";
 
-struct openVFSfuse_Args
-{
-    std::filesystem::path mountPoint; // where the users read files
-    bool isDaemon = true; // true == spawn in background
-    std::vector<std::string> fuseArgv;
-};
-
 void usage(char *name)
 {
     std::cerr << "Usage:" << std::endl //
@@ -52,8 +48,10 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
     int res;
 
     bool got_p = false;
+    std::string ignores, ini;
+    ini::IniFile myIni;
 
-    while ((res = getopt(argc, argv, "hpfd")) != -1) {
+    while ((res = getopt(argc, argv, "hpfdi:")) != -1) {
         switch (res) {
         case 'h':
             usage(argv[0]);
@@ -74,6 +72,12 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
             // enable debug logging, implies -f
             out.fuseArgv.emplace_back("-d");
             std::cout << "openVFSfuse running with debug log enabled" << std::endl;
+            break;
+        case 'i':
+            ini = optarg;
+            myIni.load(ini);
+            ignores = myIni["IgnoreApps"]["byName"].as<std::string>();
+            out.appsNoHydrate = StrTools::split(ignores, ':');
             break;
         default:
             assert(false);
@@ -119,7 +123,7 @@ int main(int argc, char *argv[])
 {
     if (auto openvfsfuseArgs = processArgs(argc, argv)) {
         std::cout << "openVFSfuse starting at" << openvfsfuseArgs->mountPoint << "." << std::endl;
-        return initializeOpenVFSFuse(openvfsfuseArgs->mountPoint, openvfsfuseArgs->fuseArgv);
+        return initializeOpenVFSFuse(*openvfsfuseArgs);
     }
     return -1;
 }
