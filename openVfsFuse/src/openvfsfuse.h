@@ -29,5 +29,14 @@
 #include <filesystem>
 #include <vector>
 
-int initializeOpenVFSFuse(const std::filesystem::path &mountPoint, const std::vector<std::string> &fuseArgs);
+struct openVFSfuse_Args
+{
+    std::filesystem::path mountPoint; // where the users read files
+    bool isDaemon = true; // true == spawn in background
+    std::vector<std::string> fuseArgv;
+    std::vector<std::string> appsNoHydrate; // these apps are not permitted to cause a dehydration
+};
+
+int initializeOpenVFSFuse(openVFSfuse_Args& openVFSArgs);
 void openvfsfuse_log(const std::string &path, const char *action, int returncode, const char *format, ...);
+

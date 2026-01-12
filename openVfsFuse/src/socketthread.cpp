@@ -23,6 +23,7 @@
 #include "socketthread.h"
 #include "json.hpp"
 #include "sharedmap.h"
+#include "strtools.h"
 
 #include <cstring>
 #include <fcntl.h>
@@ -164,24 +165,6 @@ std::string SocketThread::readSocket()
     return std::string(buf, n);
 }
 
-// Custom implementation of string split, which is not available in std::
-// remove it it once is added
-std::vector<std::string> split(const std::string &str, char delimiter)
-{
-    std::vector<std::string> tokens;
-    size_t start = 0;
-    size_t end = str.find(delimiter);
-
-    while (end != std::string::npos) {
-        tokens.push_back(str.substr(start, end - start));
-        start = end + 1;
-        end = str.find(delimiter, start);
-    }
-
-    tokens.push_back(str.substr(start));
-    return tokens;
-}
-
 void SocketThread::handleReceivedMsg(const std::string &rawmsg)
 {
     if (rawmsg.empty()) {
@@ -189,7 +172,7 @@ void SocketThread::handleReceivedMsg(const std::string &rawmsg)
         return;
     }
 
-    auto copies = split(rawmsg, 0x000A);
+    auto copies = StrTools::split(rawmsg, 0x000A);
 
     for (const string &msg : copies) {
         string msgType, msgAttr;
@@ -233,7 +216,7 @@ void SocketThread::handleReceivedMsg(const std::string &rawmsg)
                 }
             }
         } else if (msgType == "VERSION") {
-            vector<string> attribs = split(msgAttr, ':');
+            vector<string> attribs = StrTools::split(msgAttr, ':');
             if (attribs.size() == 3) {
                 cout << "Got PID of the Desktop Client: " << attribs.at(2) << endl;
                 _sharedMap.setDesktopClientPid(std::stol(attribs.at(2)));

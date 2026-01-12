@@ -62,9 +62,10 @@ namespace {
 class VFSFuseContext
 {
 public:
-    VFSFuseContext(const std::filesystem::path &mountPoint)
+    VFSFuseContext(const std::filesystem::path &mountPoint, const std::vector<std::string> &appsNoHydrate)
         : _mountPoint(mountPoint)
         , _rootHandle(open(_mountPoint.c_str(), 0))
+        , _appsNoHydrate(appsNoHydrate)
     {
         assert(!_instance);
         _instance = this;
@@ -101,10 +102,19 @@ public:
 
     static auto &instance() { return *_instance; }
 
+    bool appPermittedToOpen(const std::string& app)
+    {
+        for( const auto &a : _appsNoHydrate) {
+            if (app == a) return false;
+        }
+        return true;
+    }
+
 private:
     static VFSFuseContext *_instance;
     std::filesystem::path _mountPoint;
     int _rootHandle;
+    std::vector<std::string> _appsNoHydrate;
 };
 
 VFSFuseContext *VFSFuseContext::_instance = nullptr;
@@ -213,7 +223,7 @@ void openvfsfuse_log(const std::string &path, const char *action, int returncode
     free(buf);
 }
 
-static void *openVFSfuse_init(struct fuse_conn_info *info, fuse_config *cfg)
+static void *openVFSfuse_init(struct fuse_conn_info*, fuse_config*)
 {
     openvfsfuse_log("/path", "_init", 1, "**** INIT called");
 
@@ -221,7 +231,7 @@ static void *openVFSfuse_init(struct fuse_conn_info *info, fuse_config *cfg)
 }
 
 
-static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_file_info *fi)
+static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_file_info *)
 {
     const auto path = getInternalPath(orig_path);
     const auto res = lstat(path.c_str(), stbuf);
@@ -395,6 +405,7 @@ static int openVFSfuse_symlink(const char *from, const char *orig_to)
 
 static int openVFSfuse_rename(const char *orig_from, const char *orig_to, unsigned int flags)
 {
+    (void) flags;
     int res;
     const auto from = getInternalPath(orig_from);
     const auto to = getInternalPath(orig_to);
@@ -555,8 +566,8 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         // is not on the ignore list
 
         // ignore list of apps that must not cause a hydration
-        if (opener.ends_with("kioworker") || opener.ends_with("dolphin")) {
-            openvfsfuse_log(path, "open", 0, "Blocking hydration for kio_worker");
+        if (!VFSFuseContext::instance().appPermittedToOpen(opener)) {
+            openvfsfuse_log(path, "open", 0, "Blocking hydration for not permitted app %s", opener);
             return -EPERM;
         }
 
@@ -775,9 +786,11 @@ static int openVFSfuse_removexattr(const char *orig_path, const char *name)
     return 0;
 }
 
-int initializeOpenVFSFuse(const std::filesystem::path &_mountPoint, const std::vector<std::string> &fuseArgs)
+int initializeOpenVFSFuse(openVFSfuse_Args& openVFSArgs)
 {
-    const auto contextInstance = std::make_unique<VFSFuseContext>(_mountPoint);
+    const auto contextInstance = std::make_unique<VFSFuseContext>(openVFSArgs.mountPoint, openVFSArgs.appsNoHydrate);
+
+    // First, check if the mount point has a xattr that shows that it's ours
     const auto owner = Xattr::CPP::getxattr(contextInstance->mountPoint(), "user.openvfs.owner");
     if (!owner) {
         std::cerr << "Root directory does not have owner info" << std::endl;
@@ -787,7 +800,6 @@ int initializeOpenVFSFuse(const std::filesystem::path &_mountPoint, const std::v
         std::cerr << "Root directory owned by different openVFS provider " << owner.value() << std::endl;
         return -errno;
     }
-
 
     umask(0);
     fuse_operations openVFSfuse_oper = {};
@@ -823,20 +835,21 @@ int initializeOpenVFSFuse(const std::filesystem::path &_mountPoint, const std::v
 
     std::cout << "openVFSfuse starting. PID:" << getpid() << " ";
     vector<const char *> fuseArgsArray;
-    for (const auto &s : fuseArgs) {
+    for (const auto &s : openVFSArgs.fuseArgv) {
         fuseArgsArray.push_back(s.data());
         std::cout << s << " ";
     }
     fuseArgsArray.push_back(nullptr);
     std::cout << std::endl;
     fuse_set_log_func([](fuse_log_level level, const char *fmt, va_list ap) {
+        (void) level;
         auto *context = fuse_get_context();
         char *buf = nullptr;
         vasprintf(&buf, fmt, ap);
         std::cout << "fuse: " << (context ? getcallername(context) : "") << " " << buf;
         free(buf);
     });
-    const auto out = fuse_main(fuseArgs.size(), const_cast<char **>(fuseArgsArray.data()), &openVFSfuse_oper, nullptr);
+    const auto out = fuse_main(openVFSArgs.fuseArgv.size(), const_cast<char **>(fuseArgsArray.data()), &openVFSfuse_oper, nullptr);
 
     std::cout << "openVFSfuse closing." << std::endl;
     return out;
