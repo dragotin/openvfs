@@ -34,7 +34,8 @@ struct openVFSfuse_Args
     std::filesystem::path mountPoint; // where the users read files
     bool isDaemon = true; // true == spawn in background
     std::vector<std::string> fuseArgv;
-    std::vector<std::string> appsNoHydrate; // these apps are not permitted to cause a dehydration
+    std::vector<std::string> appsNoHydrateFull; // these apps are not permitted to cause a dehydration
+    std::vector<std::string> appsNoHydrateEndsWith;
 };
 
 int initializeOpenVFSFuse(openVFSfuse_Args& openVFSArgs);
