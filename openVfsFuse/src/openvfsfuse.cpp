@@ -62,10 +62,11 @@ namespace {
 class VFSFuseContext
 {
 public:
-    VFSFuseContext(const std::filesystem::path &mountPoint, const std::vector<std::string> &appsNoHydrate)
-        : _mountPoint(mountPoint)
+    VFSFuseContext(openVFSfuse_Args args)
+        : _mountPoint(args.mountPoint)
         , _rootHandle(open(_mountPoint.c_str(), 0))
-        , _appsNoHydrate(appsNoHydrate)
+        , _appsNoHydrateFull(args.appsNoHydrateFull)
+        , _appsNoHydrateEndsWith(args.appsNoHydrateEndsWith)
     {
         assert(!_instance);
         _instance = this;
@@ -102,19 +103,26 @@ public:
 
     static auto &instance() { return *_instance; }
 
-    bool appPermittedToOpen(const std::string& app)
+    bool blockedToOpen(const std::string& app)
     {
-        for( const auto &a : _appsNoHydrate) {
-            if (app == a) return false;
+        for( const auto &a : _appsNoHydrateFull) {
+            if (app == a) return true;
         }
-        return true;
+
+        for( const auto &a : _appsNoHydrateEndsWith) {
+            if (app.ends_with(a.c_str())) {
+                return true;
+            }
+        }
+        return false;
     }
 
 private:
     static VFSFuseContext *_instance;
     std::filesystem::path _mountPoint;
     int _rootHandle;
-    std::vector<std::string> _appsNoHydrate;
+    std::vector<std::string> _appsNoHydrateFull;
+    std::vector<std::string> _appsNoHydrateEndsWith;
 };
 
 VFSFuseContext *VFSFuseContext::_instance = nullptr;
@@ -566,7 +574,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         // is not on the ignore list
 
         // ignore list of apps that must not cause a hydration
-        if (!VFSFuseContext::instance().appPermittedToOpen(opener)) {
+        if (VFSFuseContext::instance().blockedToOpen(opener)) {
             openvfsfuse_log(path, "open", 0, "Blocking hydration for not permitted app %s", opener);
             return -EPERM;
         }
@@ -588,7 +596,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         // Here in this thread we enter a loop and wait for results
         int cnt{0};
         int state{1};
-        const auto MaxCnt{50};
+        const auto MaxCnt{20};
         std::chrono::duration waitTime{10ms};
         std::chrono::duration dur{30ms};
 
@@ -603,6 +611,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
             // third: waittime: 110ms, dur: 180ms
             // forth: waittime: 290ms, dur: 470ms
             // fifth: waittime: 760ms, dur: 1230ms
+            // ...
 
             // check shared map and see if the id has changed to 0, which means success
             // the value is changed in the other thread and fetched here
@@ -788,7 +797,7 @@ static int openVFSfuse_removexattr(const char *orig_path, const char *name)
 
 int initializeOpenVFSFuse(openVFSfuse_Args& openVFSArgs)
 {
-    const auto contextInstance = std::make_unique<VFSFuseContext>(openVFSArgs.mountPoint, openVFSArgs.appsNoHydrate);
+    const auto contextInstance = std::make_unique<VFSFuseContext>(openVFSArgs);
 
     // First, check if the mount point has a xattr that shows that it's ours
     const auto owner = Xattr::CPP::getxattr(contextInstance->mountPoint(), "user.openvfs.owner");

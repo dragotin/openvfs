@@ -3,13 +3,16 @@
 
 #include "openvfsfuse.h"
 #include "strtools.h"
-
-#include <inicpp.h>
+#include "json.hpp"
 
 #include <getopt.h>
 #include <iostream>
 #include <optional>
 #include <vector>
+#include <fstream>
+
+
+using json = nlohmann::json;
 
 namespace {
 constexpr int MaxFuseArgs = 32;
@@ -48,8 +51,6 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
     int res;
 
     bool got_p = false;
-    std::string ignores, ini;
-    ini::IniFile myIni;
 
     while ((res = getopt(argc, argv, "hpfdi:")) != -1) {
         switch (res) {
@@ -73,12 +74,17 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
             out.fuseArgv.emplace_back("-d");
             std::cout << "openVFSfuse running with debug log enabled" << std::endl;
             break;
-        case 'i':
-            ini = optarg;
-            myIni.load(ini);
-            ignores = myIni["IgnoreApps"]["byName"].as<std::string>();
-            out.appsNoHydrate = StrTools::split(ignores, ':');
+        case 'i': {
+            std::string myfile;
+
+            myfile = optarg;
+            std::ifstream ifs(myfile);
+            json data = json::parse(ifs);
+
+            out.appsNoHydrateFull = data["ignoreApps"]["byName"].get< std::vector< std::string > > ();
+            out.appsNoHydrateEndsWith = data["ignoreApps"]["endsWith"].get< std::vector< std::string > > ();
             break;
+        }
         default:
             assert(false);
             break;
