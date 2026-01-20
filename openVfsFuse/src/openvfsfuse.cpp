@@ -29,10 +29,8 @@
 
 #include <dirent.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <fuse3/fuse.h>
 #include <stdio.h>
-#include <sys/xattr.h>
 #include <unistd.h>
 
 #include "json.hpp"
@@ -52,6 +50,10 @@
 #include "openvfsfuse.h"
 
 #include "xattr.h"
+
+#ifdef __APPLE__
+#include <libproc.h>
+#endif
 
 
 using json = nlohmann::json;
@@ -141,12 +143,24 @@ std::string getcallername(fuse_context *context)
     {
         return "pid: 0";
     }
+#ifdef __APPLE__
+    std::string out(PROC_PIDPATHINFO_MAXSIZE, 0);
+    const auto size = proc_pidpath(context->pid, out.data(), out.size());
+    if (size > 0)
+    {
+        out.resize(size);
+        return out;
+    }
+    std::cerr << "Failed to locate process name for: " << context->pid << " error: " << strerror(errno) << std::endl;
+    return "unknown: pid: " + std::to_string(context->pid);
+#else
     try {
         return std::filesystem::read_symlink(std::filesystem::path(std::format("/proc/{}/exe", context->pid)));
     } catch (std::filesystem::filesystem_error const &ex) {
         std::cerr << "Failed to locate process name for: " << context->pid << " error: " << ex.what() << std::endl;
         return "unknown: pid: " + std::to_string(context->pid);
     }
+#endif
 }
 
 }
