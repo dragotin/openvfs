@@ -20,6 +20,9 @@ include(KDEGitCommitHooks)
 
 # Qt does not support exceptions therefor KDE disables them by default
 kde_enable_exceptions()
+# Unused here, disable cmake Warning
+set(CMAKE_AUTOMOC OFF)
+set(CMAKE_AUTORCC OFF)
 
 # enable clang format git hook
 kde_configure_git_pre_commit_hook(CHECKS CLANG_FORMAT)
