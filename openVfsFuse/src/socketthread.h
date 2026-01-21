@@ -104,6 +104,7 @@ private:
     std::queue<std::shared_ptr<ThreadMsg>> m_queue;
     std::mutex m_mutex;
     std::condition_variable m_cv;
+    std::atomic<bool> m_exit;
     std::atomic<bool> m_timerExit;
     const std::string THREAD_NAME;
 
@@ -111,7 +112,6 @@ private:
     std::promise<void> m_threadStartPromise;
     std::future<void> m_threadStartFuture;
 
-    std::atomic<bool> m_exit;
 
     const std::string _socketPath{"/run/user/1000/OpenCloud/socket"};
     std::atomic<int> _socket;

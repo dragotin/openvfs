@@ -141,7 +141,7 @@ bool SocketThread::socketSendMsg(std::shared_ptr<MsgData> msgData)
 
     cout << "Raw message: " << msg << endl;
     // send message
-    unsigned long int value;
+    ssize_t value;
 
     value = write(_socket, msg.c_str(), msg.size());
     if (value < 0) {
@@ -255,7 +255,7 @@ size_t SocketThread::GetQueueSize()
 //----------------------------------------------------------------------------
 // SetThreadName
 //----------------------------------------------------------------------------
-void SocketThread::SetThreadName(std::thread::native_handle_type handle, const std::string &name)
+void SocketThread::SetThreadName([[maybe_unused]] std::thread::native_handle_type handle, [[maybe_unused]] const std::string &name)
 {
 #ifdef WIN32
     // Set the thread name so it shows in the Visual Studio Debug Location toolbar
@@ -276,7 +276,7 @@ void SocketThread::ExitThread()
         return;
 
     // Create a new ThreadMsg
-    std::shared_ptr<ThreadMsg> threadMsg(new ThreadMsg(MSG_EXIT_THREAD, 0));
+    std::shared_ptr<ThreadMsg> threadMsg(new ThreadMsg(MSG_EXIT_THREAD, nullptr));
 
     // Put exit thread message into the queue
     {
@@ -324,7 +324,7 @@ void SocketThread::TimerThread()
         // Sleep for 250mS then put a MSG_TIMER into the message queue
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
 
-        std::shared_ptr<ThreadMsg> threadMsg(new ThreadMsg(MSG_TIMER, 0));
+        std::shared_ptr<ThreadMsg> threadMsg(new ThreadMsg(MSG_TIMER, nullptr));
 
         // Add timer msg to queue and notify worker thread
         std::unique_lock<std::mutex> lk(m_mutex);
