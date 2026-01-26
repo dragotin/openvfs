@@ -5,11 +5,11 @@
 #include "openvfsfuse.h"
 #include "strtools.h"
 
+#include <fstream>
 #include <getopt.h>
 #include <iostream>
 #include <optional>
 #include <vector>
-#include <fstream>
 
 
 using json = nlohmann::json;
@@ -34,10 +34,10 @@ constexpr int MaxFuseArgs = 32;
 
 
 namespace {
-const std::string FuseStandardArgsStr = "attr_timeout=0,entry_timeout=0,negative_timeout=0";
-const std::string ConfigIgnoreAppsStr = "ignoreApps";
-const std::string ConfigByNameStr = "byName";
-const std::string ConfigEndsWith = "endsWith";
+    const std::string FuseStandardArgsStr = "attr_timeout=0,entry_timeout=0,negative_timeout=0";
+    const std::string ConfigIgnoreAppsStr = "ignoreApps";
+    const std::string ConfigByNameStr = "byName";
+    const std::string ConfigEndsWith = "endsWith";
 }
 
 void usage(char *name)
@@ -84,8 +84,8 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
             std::ifstream ifs(optarg);
             json data = json::parse(ifs);
 
-            out.appsNoHydrateFull = data[ConfigIgnoreAppsStr][ConfigByNameStr].get< std::vector< std::string > > ();
-            out.appsNoHydrateEndsWith = data[ConfigIgnoreAppsStr][ConfigEndsWith].get< std::vector< std::string > > ();
+            out.appsNoHydrateFull = data[ConfigIgnoreAppsStr][ConfigByNameStr].get<std::vector<std::string>>();
+            out.appsNoHydrateEndsWith = data[ConfigIgnoreAppsStr][ConfigEndsWith].get<std::vector<std::string>>();
             break;
         }
         default:

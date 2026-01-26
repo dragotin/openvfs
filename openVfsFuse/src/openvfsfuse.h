@@ -38,6 +38,5 @@ struct openVFSfuse_Args
     std::vector<std::string> appsNoHydrateEndsWith;
 };
 
-int initializeOpenVFSFuse(openVFSfuse_Args& openVFSArgs);
+int initializeOpenVFSFuse(openVFSfuse_Args &openVFSArgs);
 void openvfsfuse_log(const std::string &path, const char *action, int returncode, const char *format, ...);
-

@@ -43,8 +43,8 @@
 #include <stdarg.h>
 
 #include <cstring>
-#include <sstream>
 #include <format>
+#include <sstream>
 
 #include "flags.h"
 #include "openvfsfuse.h"
@@ -105,13 +105,14 @@ public:
 
     static auto &instance() { return *_instance; }
 
-    bool blockedToOpen(const std::string& app)
+    bool blockedToOpen(const std::string &app)
     {
-        for( const auto &a : _appsNoHydrateFull) {
-            if (app == a) return true;
+        for (const auto &a : _appsNoHydrateFull) {
+            if (app == a)
+                return true;
         }
 
-        for( const auto &a : _appsNoHydrateEndsWith) {
+        for (const auto &a : _appsNoHydrateEndsWith) {
             if (app.ends_with(a.c_str())) {
                 return true;
             }
@@ -134,20 +135,18 @@ auto getInternalPath(const std::string &path)
     return VFSFuseContext::instance().getInternalPath(path);
 }
 
-    /*
-     * Returns the name of the process which accessed the file system.
-     */
+/*
+ * Returns the name of the process which accessed the file system.
+ */
 std::string getcallername(fuse_context *context)
 {
-    if (context->pid == 0)
-    {
+    if (context->pid == 0) {
         return "pid: 0";
     }
 #ifdef __APPLE__
     std::string out(PROC_PIDPATHINFO_MAXSIZE, 0);
     const auto size = proc_pidpath(context->pid, out.data(), out.size());
-    if (size > 0)
-    {
+    if (size > 0) {
         out.resize(size);
         return out;
     }
@@ -236,15 +235,15 @@ void openvfsfuse_log(const std::string &path, const char *action, int returncode
     const auto successCode = returncode >= 0 ? " ✓" : " ❌";
 
     if (context) {
-        std::cout << " [pid = " << context->pid << " " << getcallername(context) << " uuid = " << context->uid << "] "
-                  << action << " " << buf << " " << path << successCode << std::endl;
+        std::cout << " [pid = " << context->pid << " " << getcallername(context) << " uuid = " << context->uid << "] " << action << " " << buf << " " << path
+                  << successCode << std::endl;
     } else {
         std::cout << path << " [ openvfsfuse ]" << buf << successCode << std::endl;
     }
     free(buf);
 }
 
-static void *openVFSfuse_init(struct fuse_conn_info*, fuse_config*)
+static void *openVFSfuse_init(struct fuse_conn_info *, fuse_config *)
 {
     openvfsfuse_log("/path", "_init", 1, "**** INIT called");
 
@@ -426,7 +425,7 @@ static int openVFSfuse_symlink(const char *from, const char *orig_to)
 
 static int openVFSfuse_rename(const char *orig_from, const char *orig_to, unsigned int flags)
 {
-    (void) flags;
+    (void)flags;
     int res;
     const auto from = getInternalPath(orig_from);
     const auto to = getInternalPath(orig_to);
@@ -791,7 +790,7 @@ static int openVFSfuse_removexattr(const char *orig_path, const char *name)
     return Xattr::removexattr(path, name);
 }
 
-int initializeOpenVFSFuse(openVFSfuse_Args& openVFSArgs)
+int initializeOpenVFSFuse(openVFSfuse_Args &openVFSArgs)
 {
     const auto contextInstance = std::make_unique<VFSFuseContext>(openVFSArgs);
 
@@ -847,7 +846,7 @@ int initializeOpenVFSFuse(openVFSfuse_Args& openVFSArgs)
     fuseArgsArray.push_back(nullptr);
     std::cout << std::endl;
     fuse_set_log_func([](fuse_log_level level, const char *fmt, va_list ap) {
-        (void) level;
+        (void)level;
         auto *context = fuse_get_context();
         char *buf = nullptr;
         vasprintf(&buf, fmt, ap);
