@@ -75,10 +75,7 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
             std::cout << "openVFSfuse running with debug log enabled" << std::endl;
             break;
         case 'i': {
-            std::string myfile;
-
-            myfile = optarg;
-            std::ifstream ifs(myfile);
+            std::ifstream ifs(optarg);
             json data = json::parse(ifs);
 
             out.appsNoHydrateFull = data["ignoreApps"]["byName"].get< std::vector< std::string > > ();

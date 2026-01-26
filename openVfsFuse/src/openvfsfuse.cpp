@@ -805,7 +805,7 @@ int initializeOpenVFSFuse(openVFSfuse_Args& openVFSArgs)
         std::cerr << "Root directory does not have owner info" << std::endl;
         return -errno;
     }
-    if (!owner->starts_with("opencloud")) {
+    if (!owner->starts_with("OpenCloud")) {
         std::cerr << "Root directory owned by different openVFS provider " << owner.value() << std::endl;
         return -errno;
     }
