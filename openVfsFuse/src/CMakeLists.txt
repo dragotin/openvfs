@@ -13,7 +13,6 @@ add_executable(openvfsfuse ${openVFS_SRC})
 set_target_properties(openvfsfuse PROPERTIES EXPORT_NAME OpenVFS)
 ecm_mark_nongui_executable(openvfsfuse)
 
-target_include_directories(openvfsfuse PRIVATE 3rdparty)
 target_link_libraries(openvfsfuse FUSE::FUSE)
 
 # disable darwin extensions for now

@@ -21,7 +21,7 @@
  */
 
 #include "socketthread.h"
-#include "json.hpp"
+#include "3rdparty/json.hpp"
 #include "sharedmap.h"
 #include "strtools.h"
 
