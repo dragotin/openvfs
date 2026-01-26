@@ -32,12 +32,18 @@ constexpr int MaxFuseArgs = 32;
 // files in gvfs to fail.
 // https://gitlab.gnome.org/GNOME/gvfs/-/blob/master/client/gvfsfusedaemon.c#L1045
 
-std::string fuseStandardArgs = "attr_timeout=0,entry_timeout=0,negative_timeout=0";
+
+namespace {
+const std::string FuseStandardArgsStr = "attr_timeout=0,entry_timeout=0,negative_timeout=0";
+const std::string ConfigIgnoreAppsStr = "ignoreApps";
+const std::string ConfigByNameStr = "byName";
+const std::string ConfigEndsWith = "endsWith";
+}
 
 void usage(char *name)
 {
     std::cerr << "Usage:" << std::endl //
-              << name << " [-h] | [-f] [-p] [-d] /directory-mountpoint" << std::endl //
+              << name << " [-h] | [-f] [-p] [-d] [-i config-file] /directory-mountpoint" << std::endl //
               << "Type 'man openvfsfuse' for more details" << std::endl;
 }
 
@@ -65,7 +71,7 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
             break;
         case 'p':
             out.fuseArgv.emplace_back("-o");
-            out.fuseArgv.emplace_back("allow_other,default_permissions," + fuseStandardArgs);
+            out.fuseArgv.emplace_back("allow_other,default_permissions," + FuseStandardArgsStr);
             got_p = true;
             std::cout << "openVFSfuse running as a public filesystem" << std::endl;
             break;
@@ -78,8 +84,8 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
             std::ifstream ifs(optarg);
             json data = json::parse(ifs);
 
-            out.appsNoHydrateFull = data["ignoreApps"]["byName"].get< std::vector< std::string > > ();
-            out.appsNoHydrateEndsWith = data["ignoreApps"]["endsWith"].get< std::vector< std::string > > ();
+            out.appsNoHydrateFull = data[ConfigIgnoreAppsStr][ConfigByNameStr].get< std::vector< std::string > > ();
+            out.appsNoHydrateEndsWith = data[ConfigIgnoreAppsStr][ConfigEndsWith].get< std::vector< std::string > > ();
             break;
         }
         default:
@@ -90,7 +96,7 @@ std::optional<openVFSfuse_Args> processArgs(int argc, char *argv[])
 
     if (!got_p) {
         out.fuseArgv.emplace_back("-o");
-        out.fuseArgv.emplace_back(fuseStandardArgs.c_str());
+        out.fuseArgv.emplace_back(FuseStandardArgsStr.c_str());
     }
 
     if (optind + 1 <= argc) {
