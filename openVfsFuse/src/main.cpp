@@ -1,9 +1,9 @@
 #include <cassert>
 #include <filesystem>
 
+#include "3rdparty/json.hpp"
 #include "openvfsfuse.h"
 #include "strtools.h"
-#include "json.hpp"
 
 #include <getopt.h>
 #include <iostream>
