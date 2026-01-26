@@ -26,9 +26,6 @@ set(CMAKE_AUTORCC OFF)
 
 # Qt does not support exceptions therefor KDE disables them by default
 kde_enable_exceptions()
-# Unused here, disable cmake Warning
-set(CMAKE_AUTOMOC OFF)
-set(CMAKE_AUTORCC OFF)
 
 # enable clang format git hook
 kde_configure_git_pre_commit_hook(CHECKS CLANG_FORMAT)
@@ -39,6 +36,5 @@ add_compile_definitions(FUSE_USE_VERSION=30)
 find_package(fuse REQUIRED)
 
 add_subdirectory(src)
-
 
 feature_summary(WHAT ALL FATAL_ON_MISSING_REQUIRED_PACKAGES)
