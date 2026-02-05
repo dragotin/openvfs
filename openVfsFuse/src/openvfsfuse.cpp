@@ -27,29 +27,29 @@
 #define _X_SOURCE 500
 #endif
 
+
+#include "openvfsfuse.h"
+#include "flags.h"
+#include "xattr.h"
+
 #include <dirent.h>
 #include <errno.h>
 #include <fuse3/fuse.h>
 #include <stdio.h>
 #include <unistd.h>
 
-#include "3rdparty/json.hpp"
 #include "sharedmap.h"
 #include "socketthread.h"
 
 #include <grp.h>
 #include <iostream>
 #include <pwd.h>
-#include <stdarg.h>
 
 #include <cstring>
 #include <format>
 #include <sstream>
 
-#include "flags.h"
-#include "openvfsfuse.h"
-
-#include "xattr.h"
+#include <nlohmann/json.hpp>
 
 #ifdef __APPLE__
 #include <libproc.h>

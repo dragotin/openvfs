@@ -33,8 +33,14 @@ kde_configure_git_pre_commit_hook(CHECKS CLANG_FORMAT)
 add_compile_definitions(_FILE_OFFSET_BITS=64)
 add_compile_definitions(FUSE_USE_VERSION=30)
 
+find_package(nlohmann_json 3 QUIET)
+set_package_properties(nlohmann_json PROPERTIES TYPE REQUIRED
+        DESCRIPTION "JSON for Modern C++"
+        URL "https://github.com/nlohmann/json")
+
+
 find_package(fuse REQUIRED)
 
 add_subdirectory(src)
 
-feature_summary(WHAT ALL FATAL_ON_MISSING_REQUIRED_PACKAGES)
+feature_summary(WHAT ALL FATAL_ON_MISSING_REQUIRED_PACKAGES INCLUDE_QUIET_PACKAGES)

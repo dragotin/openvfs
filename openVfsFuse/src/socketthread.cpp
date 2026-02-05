@@ -21,7 +21,6 @@
  */
 
 #include "socketthread.h"
-#include "3rdparty/json.hpp"
 #include "sharedmap.h"
 #include "strtools.h"
 
@@ -33,6 +32,8 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+
+#include <nlohmann/json.hpp>
 
 
 using namespace std;

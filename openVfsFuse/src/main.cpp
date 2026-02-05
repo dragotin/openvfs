@@ -1,15 +1,14 @@
+#include "openvfsfuse.h"
+
 #include <cassert>
 #include <filesystem>
-
-#include "3rdparty/json.hpp"
-#include "openvfsfuse.h"
-#include "strtools.h"
-
 #include <fstream>
 #include <getopt.h>
 #include <iostream>
 #include <optional>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 
 using json = nlohmann::json;
