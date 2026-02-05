@@ -34,7 +34,7 @@ constexpr int MaxFuseArgs = 32;
 
 
 namespace {
-    const std::string FuseStandardArgsStr = "attr_timeout=0,entry_timeout=0,negative_timeout=0";
+    const std::string FuseStandardArgsStr = "attr_timeout=0,entry_timeout=0,negative_timeout=0,auto_unmount";
     const std::string ConfigIgnoreAppsStr = "ignoreApps";
     const std::string ConfigByNameStr = "byName";
     const std::string ConfigEndsWith = "endsWith";
