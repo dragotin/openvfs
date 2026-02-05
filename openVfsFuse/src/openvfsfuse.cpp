@@ -225,14 +225,12 @@ void openvfsfuse_log(const std::string &path, const char *action, int returncode
     va_end(args);
 
     auto context = fuse_get_context();
-    const auto successCode = returncode >= 0 ? " ✓" : " ❌";
-
-    if (context) {
-        std::cout << " [pid = " << context->pid << " " << getcallername(context) << " uuid = " << context->uid << "] " << action << " " << buf << " " << path
-                  << successCode << std::endl;
-    } else {
-        std::cout << path << " [ openvfsfuse ]" << buf << successCode << std::endl;
-    }
+    const auto successCode = returncode >= 0 ? "✅" : "❌";
+    const auto message = context
+        ? std::format("[ pid = {} {} uuid = {}] {} {} {} {}", context->pid, getcallername(context), context->uid, action, buf, path, successCode)
+        : std::format("[ openvfsfuse ] {} {} {} {}", action, buf, path, successCode);
+    std::cout << message << std::endl;
+    syslog(LOG_INFO, "%s", message.c_str());
     free(buf);
 }
 
@@ -843,7 +841,9 @@ int initializeOpenVFSFuse(openVFSfuse_Args &openVFSArgs)
         auto *context = fuse_get_context();
         char *buf = nullptr;
         vasprintf(&buf, fmt, ap);
-        std::cout << "fuse: " << (context ? getcallername(context) : "") << " " << buf;
+        const auto message = std::format("fuse: {} {}", context ? getcallername(context) : "", buf);
+        std::cout << message;
+        syslog(LOG_INFO, "%s", message.c_str());
         free(buf);
     });
     const auto out = fuse_main(openVFSArgs.fuseArgv.size(), const_cast<char **>(fuseArgsArray.data()), &openVFSfuse_oper, nullptr);
