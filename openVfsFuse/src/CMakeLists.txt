@@ -19,4 +19,5 @@ target_link_libraries(openvfsfuse FUSE::FUSE)
 target_compile_definitions(openvfsfuse PRIVATE FUSE_DARWIN_ENABLE_EXTENSIONS=0)
 
 install(TARGETS openvfsfuse EXPORT OpenVFSConfig ${KDE_INSTALL_TARGETS_DEFAULT_ARGS} )
-install(EXPORT OpenVFSConfig DESTINATION lib/cmake/openvfs NAMESPACE OpenVFS::)
+install(EXPORT OpenVFSConfig DESTINATION ${KDE_INSTALL_CMAKEPACKAGEDIR}/openvfs NAMESPACE OpenVFS::)
+install(FILES config.json DESTINATION ${KDE_INSTALL_SYSCONFDIR}/openvfs)
