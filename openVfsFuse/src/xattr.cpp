@@ -14,9 +14,9 @@
 int Xattr::getxattr(const std::filesystem::path &path, const char *name, char *value, size_t size)
 {
 #ifdef __APPLE__
-    ssize_t res = ::getxattr(path.c_str(), name, value, size, 0, XATTR_NOFOLLOW);
+    const ssize_t res = ::getxattr(path.c_str(), name, value, size, 0, XATTR_NOFOLLOW);
 #else
-    ssize_t res = ::lgetxattr(path.c_str(), name, value, size);
+    const ssize_t res = ::lgetxattr(path.c_str(), name, value, size);
 #endif
     // dont log "attrib not available" as error
     if (res < 0 && errno == ENODATA) {
@@ -30,9 +30,7 @@ int Xattr::getxattr(const std::filesystem::path &path, const char *name, char *v
     if (res < 0) {
         return -errno;
     }
-
     return static_cast<int>(res);
-    ;
 }
 
 int Xattr::setxattr(const std::filesystem::path &path, const char *name, const char *value, size_t size, int flags)
