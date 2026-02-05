@@ -27,29 +27,27 @@
 #define _X_SOURCE 500
 #endif
 
+#include "openvfsfuse.h"
+#include "flags.h"
+#include "xattr.h"
+#include "3rdparty/json.hpp"
+#include "sharedmap.h"
+#include "socketthread.h"
+#include "openvfsattributes.h"
+
+
 #include <dirent.h>
 #include <errno.h>
 #include <fuse3/fuse.h>
 #include <stdio.h>
 #include <unistd.h>
-
-#include "3rdparty/json.hpp"
-#include "sharedmap.h"
-#include "socketthread.h"
-
 #include <grp.h>
 #include <iostream>
 #include <pwd.h>
-#include <stdarg.h>
-
 #include <cstring>
 #include <format>
 #include <sstream>
 
-#include "flags.h"
-#include "openvfsfuse.h"
-
-#include "xattr.h"
 
 #ifdef __APPLE__
 #include <libproc.h>
@@ -166,49 +164,17 @@ std::string getcallername(fuse_context *context)
 
 
 namespace OpenVfsAttr {
-struct openVFSPlaceHolderAttribs
-{
-    std::string absolutePath;
-    std::string etag;
-    std::string fileId;
-    std::size_t fSize = 0;
-    std::string action;
-    std::string state;
-    std::string pinState;
 
-    bool isOk() const { return !absolutePath.empty(); }
-};
-
-std::optional<std::size_t> get_file_size(const std::string &path)
-{
-    if (auto size = Xattr::CPP::getxattr(path, "user.openvfs.fsize")) {
-        try {
-            return std::stoull(size.value());
-        } catch (std::invalid_argument const &ex) {
-            std::cerr << "Invalid file size: " << size.value() << std::endl;
-        } catch (std::out_of_range const &ex) {
-            std::cerr << "File size out of range: " << size.value() << std::endl;
-        }
-    }
-    return {};
-}
-
-
-openVFSPlaceHolderAttribs get_placeholder_attribs(const std::filesystem::path &internalPath)
+OpenVfsAttributes::PlaceHolderAttributes get_placeholder_attribs(const std::filesystem::path &internalPath)
 {
     // ensure we get an internal path ./foo
     assert(internalPath.is_relative());
-    openVFSPlaceHolderAttribs attr{};
-
-    attr.absolutePath = VFSFuseContext::instance().getExternalPath(internalPath);
-
-    attr.etag = Xattr::CPP::getxattr(internalPath, "user.openvfs.etag").value_or("");
-    attr.fileId = Xattr::CPP::getxattr(internalPath, "user.openvfs.fileid").value_or("");
-    attr.fSize = get_file_size(internalPath).value_or(0);
-    attr.action = Xattr::CPP::getxattr(internalPath, "user.openvfs.action").value_or("");
-    attr.state = Xattr::CPP::getxattr(internalPath, "user.openvfs.state").value_or("");
-    attr.pinState = Xattr::CPP::getxattr(internalPath, "user.openvfs.pinstate").value_or("");
-    return attr;
+    if (const auto data = Xattr::CPP::getxattr(internalPath, "user.openvfs"))
+    {
+        return OpenVfsAttributes::PlaceHolderAttributes::fromJson(VFSFuseContext::instance().getExternalPath(internalPath), data.value());
+    }
+    std::cerr << "No placeholder attributes found for: " << internalPath << std::endl;
+    return {};
 }
 
 }
@@ -260,8 +226,8 @@ static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_f
         return -errno;
     }
     if (stbuf->st_size == 0) {
-        if (const auto size = OpenVfsAttr::get_file_size(path)) {
-            stbuf->st_size = static_cast<decltype(stbuf->st_size)>(size.value());
+        if (const auto attr = OpenVfsAttr::get_placeholder_attribs(path)) {
+            stbuf->st_size = static_cast<decltype(stbuf->st_size)>(attr.size);
         }
     }
     return 0;
