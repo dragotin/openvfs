@@ -38,6 +38,8 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include <chrono>
+
 #include "sharedmap.h"
 #include "socketthread.h"
 
@@ -55,9 +57,8 @@
 #include <libproc.h>
 #endif
 
-
+using namespace std::chrono_literals;
 using json = nlohmann::json;
-using namespace std;
 
 namespace {
 
@@ -107,17 +108,9 @@ public:
 
     bool blockedToOpen(const std::string &app)
     {
-        for (const auto &a : _appsNoHydrateFull) {
-            if (app == a)
-                return true;
-        }
-
-        for (const auto &a : _appsNoHydrateEndsWith) {
-            if (app.ends_with(a.c_str())) {
-                return true;
-            }
-        }
-        return false;
+       return std::ranges::find(_appsNoHydrateFull, app) != _appsNoHydrateFull.cend() ||
+               std::ranges::find_if(_appsNoHydrateEndsWith, [app](const auto &a) { return app.ends_with(a); } )
+                != _appsNoHydrateEndsWith.cend();
     }
 
 private:
@@ -563,7 +556,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
     }();
 
 
-    stringstream s;
+    std::stringstream s;
     s << OFlag(openFlags, fi->flags);
     openvfsfuse_log(path, "open", res, "open %s %s by %s", s.str().data(), path.c_str(), opener.c_str());
 
@@ -589,7 +582,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 
         // ignore list of apps that must not cause a hydration
         if (VFSFuseContext::instance().blockedToOpen(opener)) {
-            openvfsfuse_log(path, "open", 0, "Blocking hydration for not permitted app %s", opener);
+            openvfsfuse_log(path, "open", 0, "blocked hydration for not permitted app %s", opener.c_str());
             return -EPERM;
         }
 
@@ -617,7 +610,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         HydJob hj;
 
         while (state == 1 && cnt++ < MaxCnt) {
-            this_thread::sleep_for(waitTime); // sleep for some time
+            std::this_thread::sleep_for(waitTime); // sleep for some time
             waitTime += dur;
             dur += waitTime;
             // first: waittime: 10ms, dur: 30ms
@@ -838,7 +831,7 @@ int initializeOpenVFSFuse(openVFSfuse_Args &openVFSArgs)
 
 
     std::cout << "openVFSfuse starting. PID:" << getpid() << " ";
-    vector<const char *> fuseArgsArray;
+    std::vector<const char *> fuseArgsArray;
     for (const auto &s : openVFSArgs.fuseArgv) {
         fuseArgsArray.push_back(s.data());
         std::cout << s << " ";
