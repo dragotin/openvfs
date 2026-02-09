@@ -55,10 +55,31 @@
 
 #ifdef __APPLE__
 #include <libproc.h>
+#else
+#include <syslog.h>
 #endif
 
 using namespace std::chrono_literals;
 using json = nlohmann::json;
+
+
+O_FLAG_BEGIN(OpenFlags, int32_t)
+O_FLAG_ADD(O_RDONLY);
+O_FLAG_ADD(O_WRONLY);
+O_FLAG_ADD(O_RDWR);
+O_FLAG_ADD(O_APPEND);
+O_FLAG_ADD(O_CREAT);
+O_FLAG_ADD(O_DIRECTORY);
+O_FLAG_ADD(O_EXCL);
+O_FLAG_ADD(O_NOCTTY);
+O_FLAG_ADD(O_NOFOLLOW);
+O_FLAG_ADD(O_NONBLOCK);
+#ifdef O_TMPFILE
+O_FLAG_ADD(O_TMPFILE);
+#endif
+O_FLAG_ADD(O_TRUNC);
+O_FLAG_ADD_NAMED(0100000, "O_LARGEFILE");
+O_FLAG_END
 
 namespace {
 
@@ -528,37 +549,14 @@ static int openVFSfuse_utimens(const char *orig_path, const struct timespec ts[2
     return 0;
 }
 
+
 static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
 {
     int res{0};
     const auto path = getInternalPath(orig_path);
 
     const auto opener = getcallername(fuse_get_context());
-    static auto openFlags = [] {
-        auto f = OFlags<decltype(fi->flags)>("OpenFlags");
-        ADD_O_FLAG(f, O_RDONLY);
-        ADD_O_FLAG(f, O_WRONLY);
-        ADD_O_FLAG(f, O_RDWR);
-        ADD_O_FLAG(f, O_APPEND);
-        ADD_O_FLAG(f, O_CREAT);
-        ADD_O_FLAG(f, O_DIRECTORY);
-        ADD_O_FLAG(f, O_EXCL);
-        ADD_O_FLAG(f, O_NOCTTY);
-        ADD_O_FLAG(f, O_NOFOLLOW);
-#ifdef O_TMPFILE
-        ADD_O_FLAG(f, O_TMPFILE);
-#endif
-        ADD_O_FLAG(f, O_APPEND);
-        ADD_O_FLAG(f, O_TRUNC);
-        f.names[0100000] = "O_LARGEFILE";
-
-        return f;
-    }();
-
-
-    std::stringstream s;
-    s << OFlag(openFlags, fi->flags);
-    openvfsfuse_log(path, "open", res, "open %s %s by %s", s.str().data(), path.c_str(), opener.c_str());
+    openvfsfuse_log(path, "open", res, "open %s %s by %s", OpenFlags(fi->flags).to_string().c_str(), path.c_str(), opener.c_str());
 
     auto attribs = OpenVfsAttr::get_placeholder_attribs(path);
 
