@@ -27,30 +27,26 @@
 #define _X_SOURCE 500
 #endif
 
-
 #include "openvfsfuse.h"
 #include "flags.h"
-#include "xattr.h"
-
-#include <dirent.h>
-#include <errno.h>
-#include <fuse3/fuse.h>
-#include <stdio.h>
-#include <unistd.h>
-
-#include <chrono>
-
+#include "openvfsattributes.h"
 #include "sharedmap.h"
 #include "socketthread.h"
+#include "xattr.h"
 
+#include <chrono>
+#include <cstring>
+#include <dirent.h>
+#include <errno.h>
+#include <format>
+#include <fuse3/fuse.h>
 #include <grp.h>
 #include <iostream>
 #include <pwd.h>
-
-#include <cstring>
-#include <format>
 #include <sstream>
 #include <stdarg.h>
+#include <stdio.h>
+#include <unistd.h>
 
 #include <nlohmann/json.hpp>
 
@@ -111,9 +107,8 @@ public:
 
     bool blockedToOpen(const std::string &app)
     {
-       return std::ranges::find(_appsNoHydrateFull, app) != _appsNoHydrateFull.cend() ||
-               std::ranges::find_if(_appsNoHydrateEndsWith, [app](const auto &a) { return app.ends_with(a); } )
-                != _appsNoHydrateEndsWith.cend();
+        return std::ranges::find(_appsNoHydrateFull, app) != _appsNoHydrateFull.cend()
+            || std::ranges::find_if(_appsNoHydrateEndsWith, [app](const auto &a) { return app.ends_with(a); }) != _appsNoHydrateEndsWith.cend();
     }
 
 private:
@@ -162,49 +157,16 @@ std::string getcallername(fuse_context *context)
 
 
 namespace OpenVfsAttr {
-struct openVFSPlaceHolderAttribs
-{
-    std::string absolutePath;
-    std::string etag;
-    std::string fileId;
-    std::size_t fSize = 0;
-    std::string action;
-    std::string state;
-    std::string pinState;
-
-    bool isOk() const { return !absolutePath.empty(); }
-};
-
-std::optional<std::size_t> get_file_size(const std::string &path)
-{
-    if (auto size = Xattr::CPP::getxattr(path, "user.openvfs.fsize")) {
-        try {
-            return std::stoull(size.value());
-        } catch (std::invalid_argument const &ex) {
-            std::cerr << "Invalid file size: " << size.value() << std::endl;
-        } catch (std::out_of_range const &ex) {
-            std::cerr << "File size out of range: " << size.value() << std::endl;
-        }
-    }
-    return {};
-}
-
-
-openVFSPlaceHolderAttribs get_placeholder_attribs(const std::filesystem::path &internalPath)
+OpenVfsAttributes::PlaceHolderAttributes getPlaceholderAttribs(const std::filesystem::path &internalPath)
 {
     // ensure we get an internal path ./foo
     assert(internalPath.is_relative());
-    openVFSPlaceHolderAttribs attr{};
-
-    attr.absolutePath = VFSFuseContext::instance().getExternalPath(internalPath);
-
-    attr.etag = Xattr::CPP::getxattr(internalPath, "user.openvfs.etag").value_or("");
-    attr.fileId = Xattr::CPP::getxattr(internalPath, "user.openvfs.fileid").value_or("");
-    attr.fSize = get_file_size(internalPath).value_or(0);
-    attr.action = Xattr::CPP::getxattr(internalPath, "user.openvfs.action").value_or("");
-    attr.state = Xattr::CPP::getxattr(internalPath, "user.openvfs.state").value_or("");
-    attr.pinState = Xattr::CPP::getxattr(internalPath, "user.openvfs.pinstate").value_or("");
-    return attr;
+    const auto data = Xattr::CPP::getxattr(internalPath, std::string(OpenVfsConstants::XAttributeNames::Data));
+    if (!data.has_value()) {
+        std::cerr << "No placeholder attributes found for: " << internalPath << std::endl;
+    }
+    return OpenVfsAttributes::PlaceHolderAttributes::fromData(VFSFuseContext::instance().getExternalPath(internalPath),
+        data ? std::vector<uint8_t>{data.value().cbegin(), data.value().cend()} : std::vector<uint8_t>{});
 }
 
 }
@@ -254,8 +216,8 @@ static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_f
         return -errno;
     }
     if (stbuf->st_size == 0) {
-        if (const auto size = OpenVfsAttr::get_file_size(path)) {
-            stbuf->st_size = static_cast<decltype(stbuf->st_size)>(size.value());
+        if (const auto attr = OpenVfsAttr::getPlaceholderAttribs(path)) {
+            stbuf->st_size = static_cast<decltype(stbuf->st_size)>(attr.size);
         }
     }
     return 0;
@@ -561,7 +523,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
     s << OFlag(openFlags, fi->flags);
     openvfsfuse_log(path, "open", res, "open %s %s by %s", s.str().data(), path.c_str(), opener.c_str());
 
-    auto attribs = OpenVfsAttr::get_placeholder_attribs(path);
+    auto attribs = OpenVfsAttr::getPlaceholderAttribs(path);
 
     if (!attribs.isOk()) {
         openvfsfuse_log(path, "open", 0, "Not a placeholder file");
@@ -577,7 +539,7 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
         openvfsfuse_log(path, "open", res, "Desktop client tries to access, bypassing!");
     }
 
-    if (!desktopClient && attribs.state == "virtual") {
+    if (!desktopClient && attribs.state == OpenVfsConstants::States::DeHydrated) {
         // the file is virtual. It will be hydrated if the calling instance
         // is not on the ignore list
 
@@ -789,7 +751,7 @@ int initializeOpenVFSFuse(openVFSfuse_Args &openVFSArgs)
     const auto contextInstance = std::make_unique<VFSFuseContext>(openVFSArgs);
 
     // First, check if the mount point has a xattr that shows that it's ours
-    const auto owner = Xattr::CPP::getxattr(contextInstance->mountPoint(), "user.openvfs.owner");
+    const auto owner = Xattr::CPP::getxattr(contextInstance->mountPoint(), std::string(OpenVfsConstants::XAttributeNames::Owner));
     if (!owner) {
         std::cerr << "Root directory does not have owner info" << std::endl;
         return -errno;
