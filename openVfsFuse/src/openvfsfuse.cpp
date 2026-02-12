@@ -55,6 +55,8 @@
 
 #ifdef __APPLE__
 #include <libproc.h>
+#else
+#include <syslog.h>
 #endif
 
 using namespace std::chrono_literals;
