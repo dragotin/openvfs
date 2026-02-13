@@ -50,6 +50,7 @@
 #include <cstring>
 #include <format>
 #include <sstream>
+#include <stdarg.h>
 
 #include <nlohmann/json.hpp>
 
