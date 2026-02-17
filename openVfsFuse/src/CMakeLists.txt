@@ -11,12 +11,13 @@ add_library(openvfsfuse_lib STATIC
 		xattr.cpp
 		strtools.cpp
 )
-target_link_libraries(openvfsfuse_lib PRIVATE FUSE::FUSE nlohmann_json::nlohmann_json)
+target_link_libraries(openvfsfuse_lib PRIVATE FUSE::FUSE nlohmann_json::nlohmann_json Threads::Threads)
 
 add_executable(openvfsfuse main.cpp)
 target_link_libraries(openvfsfuse PRIVATE openvfsfuse_lib)
 set_target_properties(openvfsfuse PROPERTIES EXPORT_NAME OpenVFS)
 ecm_mark_nongui_executable(openvfsfuse)
+target_link_libraries(openvfsfuse PRIVATE nlohmann_json::nlohmann_json)
 
 
 # disable darwin extensions for now

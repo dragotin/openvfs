@@ -40,6 +40,7 @@ set_package_properties(nlohmann_json PROPERTIES TYPE REQUIRED
 
 
 find_package(fuse REQUIRED)
+find_package(Threads REQUIRED)
 
 add_subdirectory(src)
 

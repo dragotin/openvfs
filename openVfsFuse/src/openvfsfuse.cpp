@@ -271,7 +271,7 @@ static int openVFSfuse_readdir(const char *orig_path, void *buf, fuse_fill_dir_t
         struct stat st = {};
         st.st_ino = de->d_ino;
         st.st_mode = de->d_type << 12;
-        if (filler(buf, de->d_name, &st, 0, fuse_fill_dir_flags::FUSE_FILL_DIR_DEFAULTS)) {
+        if (filler(buf, de->d_name, &st, 0, static_cast<fuse_fill_dir_flags>(0))) {
             break;
         }
     }
@@ -801,6 +801,7 @@ int initializeOpenVFSFuse(openVFSfuse_Args &openVFSArgs)
     }
     fuseArgsArray.push_back(nullptr);
     std::cout << std::endl;
+#if FUSE_VERSION > FUSE_MAKE_VERSION(3,2)
     fuse_set_log_func([](fuse_log_level level, const char *fmt, va_list ap) {
         (void)level;
         auto *context = fuse_get_context();
@@ -811,6 +812,7 @@ int initializeOpenVFSFuse(openVFSfuse_Args &openVFSArgs)
         syslog(LOG_INFO, "%s", message.c_str());
         free(buf);
     });
+#endif
     const auto out = fuse_main(openVFSArgs.fuseArgv.size(), const_cast<char **>(fuseArgsArray.data()), &openVFSfuse_oper, nullptr);
 
     std::cout << "openVFSfuse closing." << std::endl;
