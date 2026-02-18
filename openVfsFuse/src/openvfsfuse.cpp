@@ -215,7 +215,8 @@ static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_f
     if (res == -1) {
         return -errno;
     }
-    if (stbuf->st_size == 0) {
+    // check virtual size if size is 0 and path is not a dir
+    if (!S_ISDIR(stbuf->st_mode) && stbuf->st_size == 0) {
         if (const auto attr = OpenVfsAttr::getPlaceholderAttribs(path)) {
             stbuf->st_size = static_cast<decltype(stbuf->st_size)>(attr.size);
         }
@@ -731,7 +732,20 @@ static int openVFSfuse_setxattr(const char *orig_path, const char *name, const c
 static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *value, size_t size)
 {
     const auto path = getInternalPath(orig_path);
-    return Xattr::getxattr(path, name, value, size);
+    const auto ret = Xattr::getxattr(path, name, value, size);
+    if (ret == -ENODATA && name == OpenVfsConstants::XAttributeNames::Data) {
+        // return the default value for the attributes
+        // message pack is null terminated
+        static const auto defaultData = OpenVfsAttributes::PlaceHolderAttributes({}).toData();
+        if (size > defaultData.size()) {
+            errno = 0;
+            std::copy(defaultData.begin(), defaultData.end(), value);
+            openvfsfuse_log(path, "getxattr", 0, "Returning default data for %s: %s", name, value);
+            return static_cast<int>(defaultData.size());
+        }
+        return -ERANGE;
+    }
+    return ret;
 }
 
 static int openVFSfuse_listxattr(const char *orig_path, char *list, size_t size)
