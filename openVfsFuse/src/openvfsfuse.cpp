@@ -524,115 +524,109 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
     s << OFlag(openFlags, fi->flags);
     openvfsfuse_log(path, "open", res, "open %s %s by %s", s.str().data(), path.c_str(), opener.c_str());
 
-    auto attribs = OpenVfsAttr::getPlaceholderAttribs(path);
-
-    if (!attribs.isOk()) {
-        openvfsfuse_log(path, "open", 0, "Not a placeholder file");
-    }
-
     // The desktop client must not be blocked from accessing the file
     // to be able to overwrite it.
-    long desktopClientPid = _jobs.desktopClientPid();
-    long callerPid = fuse_get_context()->pid;
-
-    const bool desktopClient = (callerPid == desktopClientPid);
-    if (desktopClient) {
+    if (fuse_get_context()->pid == _jobs.desktopClientPid()) {
         openvfsfuse_log(path, "open", res, "Desktop client tries to access, bypassing!");
-    }
+    } else {
+        if (const auto attribs = OpenVfsAttr::getPlaceholderAttribs(path)) {
+            if (attribs.state == OpenVfsConstants::States::DeHydrated) {
+                // the file is virtual. It will be hydrated if the calling instance
+                // is not on the ignore list
 
-    if (!desktopClient && attribs.state == OpenVfsConstants::States::DeHydrated) {
-        // the file is virtual. It will be hydrated if the calling instance
-        // is not on the ignore list
-
-        // ignore list of apps that must not cause a hydration
-        if (VFSFuseContext::instance().blockedToOpen(opener)) {
-            openvfsfuse_log(path, "open", 0, "blocked hydration for not permitted app %s", opener.c_str());
-            return -EPERM;
-        }
-
-        ++_transfer_id;
-
-        // Create message to send to worker thread 1
-        std::shared_ptr<MsgData> msgData(new MsgData());
-        msgData->msg = "V2/HYDRATE_FILE";
-        msgData->file = attribs.absolutePath;
-        msgData->fileId = attribs.fileId;
-        msgData->requester = getcallername(fuse_get_context());
-        msgData->id = _transfer_id; // attention: _transfer_id is global and can change!
-
-        // push hydration request to the thread that handles the communication to the client
-        _socketThread.PostMsg(msgData);
-
-        // the socketThread now talks to the client, which downloads the file for us.
-        // Here in this thread we enter a loop and wait for results
-        int cnt{0};
-        int state{1};
-        const auto MaxCnt{20};
-        std::chrono::duration waitTime{10ms};
-        std::chrono::duration dur{30ms};
-
-        HydJob hj;
-
-        while (state == 1 && cnt++ < MaxCnt) {
-            std::this_thread::sleep_for(waitTime); // sleep for some time
-            waitTime += dur;
-            dur += waitTime;
-            // first: waittime: 10ms, dur: 30ms
-            // second:waittime: 40ms, dur: 70ms
-            // third: waittime: 110ms, dur: 180ms
-            // forth: waittime: 290ms, dur: 470ms
-            // fifth: waittime: 760ms, dur: 1230ms
-            // ...
-
-            // check shared map and see if the id has changed to 0, which means success
-            // the value is changed in the other thread and fetched here
-
-            if (!_jobs.get(msgData->id, hj)) {
-                // The job is no longer there :-/
-                openvfsfuse_log(path, "open", 1, "Job queue does not have job %d", msgData->id);
-                state = -1;
-            } else {
-                state = hj.state;
-                openvfsfuse_log(path, "open", 1, "Found in job queue %d", state);
-
-                // With all the state values except 1, the loop is left
-                if (state == 0) {
-                    // success!
-                    openvfsfuse_log(path, "open", 1, "Sucessfully finished job %d", msgData->id);
-                } else if (state == 1) {
-                    // still running
-                } else if (state == -1) {
-                    // fail
-                    openvfsfuse_log(path, "open", 0, "Failed job %d", msgData->id);
-                } else if (state == 2) {
-                    // timeout
-                    openvfsfuse_log(path, "open", 0, "Job %d timed out", msgData->id);
+                // ignore list of apps that must not cause a hydration
+                if (VFSFuseContext::instance().blockedToOpen(opener)) {
+                    openvfsfuse_log(path, "open", 0, "blocked hydration for not permitted app %s", opener.c_str());
+                    return -EPERM;
                 }
+
+                // Create message to send to worker thread 1
+                std::shared_ptr<MsgData> msgData(new MsgData());
+                msgData->msg = "V2/HYDRATE_FILE";
+                msgData->file = attribs.absolutePath;
+                msgData->fileId = attribs.fileId;
+                msgData->requester = getcallername(fuse_get_context());
+                msgData->id = ++_transfer_id; // attention: _transfer_id is global and can change!
+
+                openvfsfuse_log(path, "open", 0, "Requesting hydration %s: %d", path.c_str(), msgData->id);
+
+                // push hydration request to the thread that handles the communication to the client
+                _socketThread.PostMsg(msgData);
+
+                // the socketThread now talks to the client, which downloads the file for us.
+                // Here in this thread we enter a loop and wait for results
+                int cnt{0};
+                int state{1};
+                const auto MaxCnt{20};
+                std::chrono::duration waitTime{10ms};
+                std::chrono::duration dur{30ms};
+
+                HydJob hj;
+
+                while (state == 1 && cnt++ < MaxCnt) {
+                    std::this_thread::sleep_for(waitTime); // sleep for some time
+                    waitTime += dur;
+                    dur += waitTime;
+                    // first: waittime: 10ms, dur: 30ms
+                    // second:waittime: 40ms, dur: 70ms
+                    // third: waittime: 110ms, dur: 180ms
+                    // forth: waittime: 290ms, dur: 470ms
+                    // fifth: waittime: 760ms, dur: 1230ms
+                    // ...
+
+                    // check shared map and see if the id has changed to 0, which means success
+                    // the value is changed in the other thread and fetched here
+
+                    if (!_jobs.get(msgData->id, hj)) {
+                        // The job is no longer there :-/
+                        openvfsfuse_log(path, "open", 1, "Job queue does not have job %d", msgData->id);
+                        state = -1;
+                    } else {
+                        state = hj.state;
+                        openvfsfuse_log(path, "open", 1, "Found in job queue %d", state);
+
+                        // With all the state values except 1, the loop is left
+                        if (state == 0) {
+                            // success!
+                            openvfsfuse_log(path, "open", 1, "Sucessfully finished job %d", msgData->id);
+                        } else if (state == 1) {
+                            // still running
+                        } else if (state == -1) {
+                            // fail
+                            openvfsfuse_log(path, "open", 0, "Failed job %d", msgData->id);
+                        } else if (state == 2) {
+                            // timeout
+                            openvfsfuse_log(path, "open", 0, "Job %d timed out", msgData->id);
+                        }
+                    }
+                }
+
+                // remove the job regardless of the result
+                _jobs.remove(msgData->id);
+
+                if (state == -1 || state == 2) {
+                    // Fail, job with ID was errornous
+                    openvfsfuse_log(path, "open", 1, "ERROR while retrieving: %d", state);
+                    return -ENOENT;
+                }
+
+                if (cnt >= MaxCnt) {
+                    openvfsfuse_log(path, "open", MaxCnt, "TIMEOUT - no answer from client");
+                    return -ENOENT;
+                }
+
+                openvfsfuse_log(path, "open", 0, "-- open finished");
             }
+        } else {
+            openvfsfuse_log(path, "open", 0, "Not a placeholder file");
         }
-
-        // remove the job regardless of the result
-        _jobs.remove(msgData->id);
-
-        if (state == -1 || state == 2) {
-            // Fail, job with ID was errornous
-            openvfsfuse_log(path, "open", 1, "ERROR while retrieving: %d", state);
-            return -ENOENT;
-        }
-
-        if (cnt >= MaxCnt) {
-            openvfsfuse_log(path, "open", MaxCnt, "TIMEOUT - no answer from client");
-            return -ENOENT;
-        }
-
-        openvfsfuse_log(path, "open", 0, "-- open finished");
     }
-
     // File is not dehydrated and it is just going to be opened
     res = open(path.c_str(), fi->flags);
 
-    if (res == -1)
+    if (res == -1) {
         return -errno;
+    }
 
     fi->fh = res;
     return 0;
