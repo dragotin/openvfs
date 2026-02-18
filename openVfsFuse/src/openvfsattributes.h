@@ -12,6 +12,15 @@ namespace OpenVfsAttributes {
 class PlaceHolderAttributes
 {
 public:
+    /**
+     * Creates a PlaceHolderAttributes object from a given absolute path.
+     * It is assumed the file exists and is not a placeholder.
+     * @param absolutePath
+     */
+    PlaceHolderAttributes(const std::filesystem::path &absolutePath)
+        : absolutePath(absolutePath)
+    {
+    }
 
     std::filesystem::path absolutePath;
     std::string etag;
@@ -51,11 +60,6 @@ public:
     }
 
 private:
-    PlaceHolderAttributes(const std::filesystem::path &absolutePath)
-       : absolutePath(absolutePath)
-    {
-    }
-
     PlaceHolderAttributes(const std::filesystem::path &absolutePath, const std::string &etag, const std::string &fileId, std::size_t size,
         OpenVfsConstants::States state, OpenVfsConstants::PinStates pinState)
         : absolutePath(absolutePath)
