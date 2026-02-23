@@ -15,31 +15,23 @@ set(FUSE_VERSION ${PC_fuse_VERSION})
 
 find_path(FUSE_INCLUDE_DIR
   NAMES fuse3/fuse_lowlevel.h
-  HINTS ${FUSE_ROOT} ${PC_fuse_INCLUDEDIR} ${PC_fuse_INCLUDE_DIRS}
-  PATH_SUFFIXES include include/osxfuse)
+  HINTS ${FUSE_ROOT} ${PC_fuse_INCLUDEDIR} ${PC_fuse_INCLUDE_DIRS})
 
-if(APPLE)
-  find_library(FUSE_LIBRARY
-    NAMES osxfuse
-    HINTS ${FUSE_ROOT} ${PC_fuse_LIBDIR} ${PC_fuse_LIBRARY_DIRS}
-    PATH_SUFFIXES ${CMAKE_INSTALL_LIBDIR})
-else()
-  find_library(FUSE_LIBRARY
-    NAMES fuse3
-    HINTS ${FUSE_ROOT} ${PC_fuse_LIBDIR} ${PC_fuse_LIBRARY_DIRS}
-    PATH_SUFFIXES$ ${CMAKE_INSTALL_LIBDIR})
+find_library(FUSE_LIBRARY
+  NAMES fuse3
+  HINTS ${FUSE_ROOT} ${PC_fuse_LIBDIR} ${PC_fuse_LIBRARY_DIRS}
+  PATH_SUFFIXES$ ${CMAKE_INSTALL_LIBDIR})
 
-  execute_process(
-    COMMAND sh -c "fusermount3 --version | cut -d ' ' -f 3 | cut -d '.' -f 1,2 | sed s/'\\.'//g"
-    OUTPUT_VARIABLE FUSE_MOUNT_VERSION
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE RETC)
-  if(NOT ("${RETC}" STREQUAL "0") )
-    set(${FUSE_MOUNT_VERSION} "" PARENT_SCOPE)
-  endif()
-
-  message(STATUS "Setting FUSE_MOUNT_VERSION: ${FUSE_MOUNT_VERSION}")  
+execute_process(
+  COMMAND sh -c "fusermount3 --version | cut -d ' ' -f 3 | cut -d '.' -f 1,2 | sed s/'\\.'//g"
+  OUTPUT_VARIABLE FUSE_MOUNT_VERSION
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  RESULT_VARIABLE RETC)
+if(NOT ("${RETC}" STREQUAL "0") )
+  set(${FUSE_MOUNT_VERSION} "" PARENT_SCOPE)
 endif()
+
+message(STATUS "Setting FUSE_MOUNT_VERSION: ${FUSE_MOUNT_VERSION}")
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(fuse

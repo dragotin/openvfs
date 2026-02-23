@@ -25,6 +25,8 @@
 #ifdef linux
 /* For pread()/pwrite() */
 #define _X_SOURCE 500
+#elif (__APPLE__)
+#define FUSE_DARWIN_ENABLE_EXTENSIONS 0
 #endif
 
 #include "openvfsfuse.h"
@@ -195,7 +197,9 @@ void openvfsfuse_log(const std::string &path, const char *action, int returncode
         ? std::format("[ pid = {} {} uuid = {}] {} {} {} {}", context->pid, getcallername(context), context->uid, action, buf, path, successCode)
         : std::format("[ openvfsfuse ] {} {} {} {}", action, buf, path, successCode);
     std::cout << message << std::endl;
+#ifndef __APPLE__
     syslog(LOG_INFO, "%s", message.c_str());
+#endif
     free(buf);
 }
 
@@ -817,7 +821,9 @@ int initializeOpenVFSFuse(openVFSfuse_Args &openVFSArgs)
         vasprintf(&buf, fmt, ap);
         const auto message = std::format("fuse: {} {}", context ? getcallername(context) : "", buf);
         std::cout << message;
+#ifndef __APPLE__
         syslog(LOG_INFO, "%s", message.c_str());
+#endif
         free(buf);
     });
 #endif
