@@ -18,6 +18,10 @@ namespace XAttributeNames {
      * the XAttribute name for OpenVfs objects.
      */
     constexpr std::string_view Data = "user.openvfs.data";
+    /**
+     * Xattribute provided by OpenVFSFuse to determine the size on the filesystem.
+     */
+    constexpr std::string_view RealSize = "user.openvfs.realize";
     constexpr std::string_view Owner = "user.openvfs.owner";
     constexpr std::string_view Version = "user.openvfs.version";
 }

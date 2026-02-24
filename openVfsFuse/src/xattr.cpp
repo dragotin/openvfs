@@ -18,15 +18,6 @@ int Xattr::getxattr(const std::filesystem::path &path, const char *name, char *v
 #else
     const ssize_t res = ::lgetxattr(path.c_str(), name, value, size);
 #endif
-    // dont log "attrib not available" as error
-    if (res < 0 && errno == ENODATA) {
-        openvfsfuse_log(path, "getxattr", 0, std::format("attrib {}: not found", name).c_str());
-
-    } else {
-        // use string view to ensure termination at size
-        openvfsfuse_log(path, "getxattr", res, std::format("attrib {}: {}", name, value ? std::string_view(value, std::max<ssize_t>(0, res)) : "null").c_str());
-    }
-
     if (res < 0) {
         return -errno;
     }
@@ -41,7 +32,6 @@ int Xattr::setxattr(const std::filesystem::path &path, const char *name, const c
     const auto res = ::lsetxattr(path.c_str(), name, value, size, flags);
 #endif
 
-    openvfsfuse_log(path, "setxattr", res, std::format("{} = {}", name, std::string_view(value, size)).c_str());
     if (res < 0) {
         return -errno;
     }
@@ -55,9 +45,6 @@ int Xattr::listxattr(const std::filesystem::path &path, char *list, size_t size)
 #else
     const auto res = ::llistxattr(path.c_str(), list, size);
 #endif
-
-    openvfsfuse_log(path, "listxattr", res, "");
-
     if (res < 0) {
         return -errno;
     }
@@ -71,22 +58,19 @@ int Xattr::removexattr(const std::filesystem::path &path, const char *name)
 #else
     const auto res = ::lremovexattr(path.c_str(), name);
 #endif
-
-    openvfsfuse_log(path, "removexattr", 0, "remove %s", name);
-
     if (res < 0) {
         return -errno;
     }
     return 0;
 }
 
-std::optional<std::string> Xattr::CPP::getxattr(const std::filesystem::path &path, const std::string &name)
+std::optional<std::string> Xattr::CPP::getxattr(const std::filesystem::path &path, std::string_view name)
 {
     std::string value;
     int res = 0;
     do {
         value.resize(value.size() + 255);
-        res = Xattr::getxattr(path, name.c_str(), value.data(), value.size());
+        res = Xattr::getxattr(path, name.data(), value.data(), value.size());
         if (res >= 0) {
             value.resize(res);
             return value;
