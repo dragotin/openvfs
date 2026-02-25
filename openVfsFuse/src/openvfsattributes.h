@@ -2,14 +2,15 @@
 // SPDX-FileCopyrightText: 2025 Hannah von Reth <h.vonreth@opencloud.eu>
 #pragma once
 #include "openvfconstants.h"
+#include "openvfs_export.h"
 
-#include "nlohmann/json.hpp"
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <vector>
 
-/**
- * Header only implementation of a simple parser for PlaceHolderAttributes JSON objects.
- */
 namespace OpenVfsAttributes {
-class PlaceHolderAttributes
+class OPENVFS_EXPORT PlaceHolderAttributes
 {
 public:
     /**
@@ -30,17 +31,11 @@ public:
     OpenVfsConstants::States state = OpenVfsConstants::States::Hydrated;
     OpenVfsConstants::PinStates pinState = OpenVfsConstants::PinStates::Inherited;
 
-    bool isOk() const { return _ok; }
+    [[nodiscard]] bool isOk() const { return _ok; }
 
     operator bool() const { return isOk(); }
 
-    std::vector<uint8_t> toData() const
-    {
-        using namespace OpenVfsConstants;
-        assert(*this);
-        return nlohmann::json::to_msgpack({{name(Attributes::Etag), etag}, {name(Attributes::FileId), fileId}, {name(Attributes::Size), size},
-            {name(Attributes::State), state}, {name(Attributes::PinState), pinState}});
-    }
+    [[nodiscard]] std::vector<uint8_t> toData() const;
 
     static PlaceHolderAttributes create(const std::filesystem::path &absolutePath, const std::string &etag, const std::string &fileId, std::size_t size)
     {
@@ -48,15 +43,25 @@ public:
         return {absolutePath, etag, fileId, size, States::DeHydrated, PinStates::Inherited};
     }
 
-    static PlaceHolderAttributes fromData(const std::filesystem::path &absolutePath, const std::vector<uint8_t> &d)
+    static PlaceHolderAttributes fromData(const std::filesystem::path &absolutePath, const std::vector<uint8_t> &d);
+    static std::optional<PlaceHolderAttributes> frommAttributes(const std::filesystem::path &absolutePath);
+
+    [[nodiscard]] std::size_t realSize() const;
+
+    [[nodiscard]] bool validate() const
     {
-        using namespace OpenVfsConstants;
-        if (d.empty()) {
-            return {absolutePath};
+        if (!_ok) {
+            return false;
         }
-        const auto j = nlohmann::json::from_msgpack(d);
-        return {absolutePath, j.at(name(Attributes::Etag)), j.at(name(Attributes::FileId)), j.at(name(Attributes::Size)), j.at(name(Attributes::State)),
-            j.at(name(Attributes::PinState))};
+        switch (state) {
+        case OpenVfsConstants::States::Hydrated:
+            return size == 0;
+        case OpenVfsConstants::States::DeHydrated:
+            return realSize() == 0;
+        case OpenVfsConstants::States::Hydrating:
+            return true;
+        }
+        return true;
     }
 
 private:

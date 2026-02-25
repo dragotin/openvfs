@@ -20,6 +20,8 @@ include(KDECMakeSettings NO_POLICY_SCOPE)
 include(KDECompilerSettings NO_POLICY_SCOPE)
 include(KDEGitCommitHooks)
 
+include(GenerateExportHeader)
+
 # we don't use Qt
 set(CMAKE_AUTOMOC OFF)
 set(CMAKE_AUTORCC OFF)

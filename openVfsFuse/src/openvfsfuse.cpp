@@ -25,8 +25,6 @@
 #ifdef linux
 /* For pread()/pwrite() */
 #define _X_SOURCE 500
-#elif (__APPLE__)
-#define FUSE_DARWIN_ENABLE_EXTENSIONS 0
 #endif
 
 #include "openvfsfuse.h"
@@ -157,22 +155,6 @@ std::string getcallername(fuse_context *context)
 
 }
 
-
-namespace OpenVfsAttr {
-OpenVfsAttributes::PlaceHolderAttributes getPlaceholderAttribs(const std::filesystem::path &internalPath)
-{
-    // ensure we get an internal path ./foo
-    assert(internalPath.is_relative());
-    const auto data = Xattr::CPP::getxattr(internalPath, std::string(OpenVfsConstants::XAttributeNames::Data));
-    if (!data.has_value()) {
-        std::cerr << "No placeholder attributes found for: " << internalPath << std::endl;
-    }
-    return OpenVfsAttributes::PlaceHolderAttributes::fromData(VFSFuseContext::instance().getExternalPath(internalPath),
-        data ? std::vector<uint8_t>{data.value().cbegin(), data.value().cend()} : std::vector<uint8_t>{});
-}
-
-}
-
 static SharedMap _jobs;
 static SocketThread _socketThread("SocketThread", _jobs);
 
@@ -221,8 +203,8 @@ static int openVFSfuse_getattr(const char *orig_path, struct stat *stbuf, fuse_f
     }
     // check virtual size if size is 0 and path is not a dir
     if (!S_ISDIR(stbuf->st_mode) && stbuf->st_size == 0) {
-        if (const auto attr = OpenVfsAttr::getPlaceholderAttribs(path)) {
-            stbuf->st_size = static_cast<decltype(stbuf->st_size)>(attr.size);
+        if (const auto attr = OpenVfsAttributes::PlaceHolderAttributes::frommAttributes(path)) {
+            stbuf->st_size = static_cast<decltype(stbuf->st_size)>(attr->size);
         }
     }
     return 0;
@@ -533,8 +515,8 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
     if (fuse_get_context()->pid == _jobs.desktopClientPid()) {
         openvfsfuse_log(path, "open", res, "Desktop client tries to access, bypassing!");
     } else {
-        if (const auto attribs = OpenVfsAttr::getPlaceholderAttribs(path)) {
-            if (attribs.state == OpenVfsConstants::States::DeHydrated) {
+        if (const auto attribs = OpenVfsAttributes::PlaceHolderAttributes::frommAttributes(path)) {
+            if (attribs->state == OpenVfsConstants::States::DeHydrated) {
                 // the file is virtual. It will be hydrated if the calling instance
                 // is not on the ignore list
 
@@ -547,8 +529,8 @@ static int openVFSfuse_open(const char *orig_path, struct fuse_file_info *fi)
                 // Create message to send to worker thread 1
                 std::shared_ptr<MsgData> msgData(new MsgData());
                 msgData->msg = "V2/HYDRATE_FILE";
-                msgData->file = attribs.absolutePath;
-                msgData->fileId = attribs.fileId;
+                msgData->file = VFSFuseContext::instance().getExternalPath(attribs->absolutePath);
+                msgData->fileId = attribs->fileId;
                 msgData->requester = getcallername(fuse_get_context());
                 msgData->id = ++_transfer_id; // attention: _transfer_id is global and can change!
 
@@ -730,6 +712,13 @@ static int openVFSfuse_setxattr(const char *orig_path, const char *name, const c
 static int openVFSfuse_getxattr(const char *orig_path, const char *name, char *value, size_t size)
 {
     const auto path = getInternalPath(orig_path);
+    if (name == OpenVfsConstants::XAttributeNames::RealSize) {
+        struct stat statbuf = {};
+        if (lstat(path.c_str(), &statbuf) == -1) {
+            return -errno;
+        }
+        return std::snprintf(value, size, "%ld", statbuf.st_size);
+    }
     const auto ret = Xattr::getxattr(path, name, value, size);
     if (ret == -ENODATA && name == OpenVfsConstants::XAttributeNames::Data) {
         // return the default value for the attributes
@@ -763,7 +752,7 @@ int initializeOpenVFSFuse(openVFSfuse_Args &openVFSArgs)
     const auto contextInstance = std::make_unique<VFSFuseContext>(openVFSArgs);
 
     // First, check if the mount point has a xattr that shows that it's ours
-    const auto owner = Xattr::CPP::getxattr(contextInstance->mountPoint(), std::string(OpenVfsConstants::XAttributeNames::Owner));
+    const auto owner = Xattr::CPP::getxattr(contextInstance->mountPoint(), OpenVfsConstants::XAttributeNames::Owner);
     if (!owner) {
         std::cerr << "Root directory does not have owner info" << std::endl;
         return -errno;

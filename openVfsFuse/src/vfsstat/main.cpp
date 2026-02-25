@@ -10,7 +10,6 @@
 #include <iostream>
 
 namespace {
-
 OpenVfsAttributes::PlaceHolderAttributes getPlaceholderAttribs(const std::filesystem::path &path)
 {
     const auto data = Xattr::CPP::getxattr(path, std::string(OpenVfsConstants::XAttributeNames::Data));
@@ -21,13 +20,9 @@ OpenVfsAttributes::PlaceHolderAttributes getPlaceholderAttribs(const std::filesy
 void stat(const std::filesystem::directory_entry &entry)
 {
     const auto data = getPlaceholderAttribs(entry.path());
-    if (!data) {
-        std::cout << std::format("{:<60} not a vfs  file", entry.path().filename().native()) << std::endl;
-    } else {
-        std::cout << std::format("{:<60} Size: {:<10} State: {:<10} PinState: {:<10} Etag: {:<10} FileId: {}", entry.path().filename().native(), data.size,
-            OpenVfsConstants::name(data.state), OpenVfsConstants::name(data.pinState), data.etag, data.fileId)
-                  << std::endl;
-    }
+    std::cout << std::format("{:<60} {:^4} {:>10} {:>10} {:>10} {:>10} {:<33} {}", entry.path().filename().native(), data.validate() ? "✅" : "❌", data.size,
+        data.realSize(), OpenVfsConstants::name(data.state), OpenVfsConstants::name(data.pinState), data.etag, data.fileId)
+              << std::endl;
 }
 }
 
@@ -36,6 +31,9 @@ int main(int argc, char *argv[])
     if (argc == 2) {
         const auto entry = std::filesystem::directory_entry(argv[1]);
         std::cout << "OpenVfs Stat: " << entry.path() << std::endl;
+        std::cout << std::format(
+            "{:<60} {:<4} {:<10} {:<10} {:<10} {:<10} {:<33} {}", "Path", "Valid", "Size", "ActualSize", "State", "PinState", "Etag", "FileId")
+                  << std::endl;
         if (!entry.exists()) {
             std::cout << entry.path() << " does not exist" << std::endl;
             return -1;
