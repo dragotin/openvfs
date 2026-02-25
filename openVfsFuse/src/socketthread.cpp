@@ -187,16 +187,30 @@ void SocketThread::handleReceivedMsg(const std::string &rawmsg)
         if (found != string::npos) {
             msgType = msg.substr(0, found);
             msgAttr = msg.substr(found + 1, string::npos);
+        } else {
+            std::cerr << "Invalid message format: " << msg << std::endl;
+            continue;
         }
 
         // FIXME: Think if splitting by newline makes sense
 
         if (msgType == "V2/HYDRATE_FILE_RESULT") {
-            const auto j = json::parse(msgAttr);
-            const int id = std::stoi(j["id"].get<string>());
+            int id = -1;
+            std::string status;
 
-            const auto status = j["arguments"]["status"].get<string>();
-
+            try {
+                const auto j = json::parse(msgAttr);
+                id = std::stoi(j["id"].get<string>());
+                const auto arguments = j["arguments"].get<json>();
+                if (arguments.contains("error")) {
+                    std::cerr << "Error from socket API for Id " << id << ": " << arguments["error"].get<string>() << std::endl;
+                } else {
+                    status = arguments["status"].get<string>();
+                }
+            } catch (json::exception &e) {
+                std::cerr << "Invalid JSON message: " << msgAttr << e.what() << std::endl;
+                continue;
+            }
             // rename this file to final dest.
 
             if (id > 0) {
